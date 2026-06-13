@@ -3,12 +3,12 @@ package com.winter.muplayer.base_ui
 import android.media.MediaMetadataRetriever
 import android.os.Bundle
 import android.os.Environment
-import android.util.Log
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -30,7 +30,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -56,10 +55,20 @@ class MusicUIActivity : ComponentActivity() {
 
     private lateinit var musicPlayerCore: MusicPlayerCore
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            Toast.makeText(this, "需要音频权限才能读取本地音乐", Toast.LENGTH_SHORT).show()
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 请求权限
+        if (Build.VERSION.SDK_INT >= 33) {
+            requestPermissionLauncher.launch(android.Manifest.permission.READ_MEDIA_AUDIO)
+        }
 
-        // 通过单例获取内核实例
         musicPlayerCore = MusicPlayerCore.getInstance(applicationContext)
 
         setContent {
@@ -72,49 +81,6 @@ class MusicUIActivity : ComponentActivity() {
 
 
 // ==================== 主应用组件 ====================
-private fun collectMusicFiles(dir: java.io.File, tracks: MutableList<Track>) {
-    val files = dir.listFiles() ?: return
-    for (file in files) {
-        when {
-            file.isDirectory -> com.winter.muplayer.base_ui.collectMusicFiles(file, tracks)
-            file.name.lowercase().matches(Regex(".*\\.(mp3|flac|wav|m4a|ogg)$")) -> {
-                tracks.add(createTrackFromFile(file))
-            }
-        }
-    }
-}
-
-fun createTrackFromFile(file: java.io.File): Track {
-    val retriever = MediaMetadataRetriever()
-    return try {
-        retriever.setDataSource(file.absolutePath)
-        Track(
-            id = file.hashCode().toLong(),
-            title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
-                ?: file.nameWithoutExtension,
-            artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
-                ?: "未知艺术家",
-            album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
-                ?: "未知专辑",
-            duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                ?.toLongOrNull() ?: 0,
-            uri = file.absolutePath
-        )
-    } catch (e: Exception) {
-        Track(
-            id = file.hashCode().toLong(),
-            title = file.nameWithoutExtension,
-            artist = "未知艺术家",
-            album = "未知专辑",
-            duration = 0,
-            uri = file.absolutePath
-        )
-    } finally {
-        retriever.release()
-    }
-}
-
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
@@ -126,6 +92,10 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    val coverCache = remember { mutableStateMapOf<Long, String>() }
+
+    val rotation = remember { Animatable(0f) }
+
     var showPluginManager by remember { mutableStateOf(false) }
     var showTrackDetail by remember { mutableStateOf<Track?>(null) }
     var searchQuery by remember { mutableStateOf("") }
@@ -134,20 +104,74 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     var isLoadingLocal by remember { mutableStateOf(false) }
 
 
+    fun loadCover(id: Long, filePath: String) {
+        if (coverCache.containsKey(id)) return
+        scope.launch(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(filePath)
+                val picture = retriever.embeddedPicture ?: return@launch
+                val cacheDir = java.io.File(context.cacheDir, "covers")
+                cacheDir.mkdirs()
+                val coverFile = java.io.File(cacheDir, "$id.jpg")
+                coverFile.writeBytes(picture)
+                coverCache[id] = coverFile.absolutePath
+            } catch (e: Exception) {
+                // 无封面
+            } finally {
+                retriever.release()
+            }
+        }
+    }
 
+
+
+    fun createTrackFromFile(file: java.io.File): Track {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            val id = file.hashCode().toLong()
+            // 触发封面提取
+            loadCover(id, file.absolutePath)
+            Track(
+                id = id,
+                title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: file.nameWithoutExtension,
+                artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "未知艺术家",
+                album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: "未知专辑",
+                duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0,
+                uri = file.absolutePath
+            )
+        } catch (e: Exception) {
+            Track(
+                id = file.hashCode().toLong(),
+                title = file.nameWithoutExtension,
+                artist = "未知艺术家",
+                album = "未知专辑",
+                duration = 0,
+                uri = file.absolutePath
+            )
+        } finally {
+            retriever.release()
+        }
+    }
 
 
     fun loadLocalMusic() {
         scope.launch {
             isLoadingLocal = true
             localMusicList = withContext(Dispatchers.IO) {
-                val musicDir = java.io.File(Environment.getExternalStorageDirectory(), "Music")
                 val tracks = mutableListOf<Track>()
-
-                if (musicDir.exists()) {
-                    collectMusicFiles(musicDir, tracks)
+                val dirs = ArrayDeque<java.io.File>()
+                val musicDir = java.io.File(Environment.getExternalStorageDirectory(), "Music")
+                if (musicDir.exists()) dirs.add(musicDir)
+                while (dirs.isNotEmpty()) {
+                    dirs.removeFirst().listFiles()?.forEach { file ->
+                        if (file.isDirectory) dirs.add(file)
+                        else if (file.name.matches(Regex(".*\\.(mp3|flac|wav|m4a|ogg)$"))) {
+                            tracks.add(createTrackFromFile(file))
+                        }
+                    }
                 }
-
                 tracks
             }
             isLoadingLocal = false
@@ -161,7 +185,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
             TopAppBar(
                 title = {
                     Text(
-                        text = "MuPlayer",
+                        text = "WinterMuPlayer",
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -203,19 +227,6 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                     modifier = Modifier.fillMaxSize()
                 ) {
                     // 播放控制区域
-                    item {
-                        PlayerControlCard(
-                            playerState = playerState,
-                            playMode = playMode,
-                            onPlay = musicPlayerCore::play,
-                            onPause = musicPlayerCore::pause,
-                            onStop = musicPlayerCore::stop,
-                            onNext = musicPlayerCore::playNext,
-                            onPrevious = musicPlayerCore::playPrevious,
-                            onSeek = musicPlayerCore::seekTo,
-                            onPlayModeChange = musicPlayerCore::setPlayMode
-                        )
-                    }
 
                     // 搜索栏
                     item {
@@ -233,11 +244,12 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                             queue = queue,
                             currentIndex = currentIndex,
                             searchQuery = searchQuery,
+                            coverCache = coverCache,
                             onPlayTrack = musicPlayerCore::playTrackAtIndex,
                             onRemoveTrack = musicPlayerCore::removeTrack,
                             onClearQueue = musicPlayerCore::clearQueue,
                             onTrackLongPress = { track -> showTrackDetail = track },
-                            modifier = Modifier.heightIn(max = 600.dp)  // 添加高度限制
+                            modifier = Modifier.heightIn(max = 600.dp)
                         )
                     }
 
@@ -256,6 +268,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
         LocalMusicBottomSheet(
             tracks = localMusicList,
             isLoading = isLoadingLocal,
+            coverCache = coverCache,
             onDismiss = { showLocalMusicSheet = false },
             onAddTrack = { track ->
                 musicPlayerCore.addTrack(track)
@@ -271,6 +284,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     showTrackDetail?.let { track ->
         TrackDetailDialog(
             track = track,
+            coverCache = coverCache,
             onDismiss = { showTrackDetail = null }
         )
     }
@@ -282,6 +296,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
 fun PlayerControlCard(
     playerState: PlayerStateData,
     playMode: PlayMode,
+    coverCache: Map<Long, String>,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onStop: () -> Unit,
@@ -308,7 +323,7 @@ fun PlayerControlCard(
             AlbumArtwork(
                 track = playerState.currentTrack,
                 isPlaying = playerState.state == PlayerState.PLAYING,
-                modifier = Modifier.size(200.dp)
+                coverCache = coverCache
             )
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -351,6 +366,7 @@ fun PlayerControlCard(
 fun AlbumArtwork(
     track: Track?,
     isPlaying: Boolean,
+    coverCache: Map<Long, String>,
     modifier: Modifier = Modifier
 ) {
     val rotation = remember { Animatable(0f) }
@@ -383,22 +399,23 @@ fun AlbumArtwork(
         contentAlignment = Alignment.Center
     ) {
         if (track != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(getAlbumArtUri(track))
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "专辑封面",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .graphicsLayer { rotationZ = if (isPlaying) rotation.value else 0f },
-                placeholder = painterResource(R.drawable.ic_audio_track),
-                error = rememberVectorPainter(
-                    Icons.Outlined.BrokenImage
+            if (track != null) {
+                val coverData = getAlbumArtUri(track, coverCache)
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(coverData)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "专辑封面",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                        .graphicsLayer { rotationZ = if (isPlaying) rotation.value else 0f },
+                    placeholder = painterResource(R.drawable.ic_audio_track),
+                    error = painterResource(R.drawable.ic_audio_track)
                 )
-            )
+            }
         } else {
             // 空白状态占位
             Box(
@@ -786,16 +803,16 @@ fun SearchBar(
 // ==================== 播放队列 ====================
 
 @Composable
-@OptIn(ExperimentalFoundationApi::class)
 fun PlayQueueSection(
     queue: List<Track>,
     currentIndex: Int,
     searchQuery: String,
+    coverCache: Map<Long, String>,
     onPlayTrack: (Int) -> Unit,
     onRemoveTrack: (Int) -> Unit,
     onClearQueue: () -> Unit,
     onTrackLongPress: (Track) -> Unit,
-    modifier: Modifier = Modifier  // 添加 modifier 参数
+    modifier: Modifier = Modifier
 ) {
     val filteredQueue = remember(queue, searchQuery) {
         if (searchQuery.isBlank()) queue
@@ -807,7 +824,7 @@ fun PlayQueueSection(
     }
 
     Column(
-        modifier = modifier.fillMaxWidth()  // 应用 modifier
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
@@ -848,10 +865,10 @@ fun PlayQueueSection(
                     QueueItem(
                         track = track,
                         isCurrentTrack = originalIndex == currentIndex,
+                        coverCache = coverCache,
                         onPlay = { onPlayTrack(originalIndex) },
                         onRemove = { onRemoveTrack(originalIndex) },
-                        onLongPress = { onTrackLongPress(track) },
-                        modifier = Modifier.animateItemPlacement()
+                        onLongPress = { onTrackLongPress(track) }
                     )
                 }
             }
@@ -893,6 +910,7 @@ fun EmptyQueuePlaceholder(isEmpty: Boolean, isNoResult: Boolean) {
 fun QueueItem(
     track: Track,
     isCurrentTrack: Boolean,
+    coverCache: Map<Long, String>,
     onPlay: () -> Unit,
     onRemove: () -> Unit,
     onLongPress: () -> Unit,
@@ -951,12 +969,9 @@ fun QueueItem(
                 )
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 当前播放指示器
                     if (isCurrentTrack) {
                         Icon(
                             Icons.Filled.PlayArrow,
@@ -967,10 +982,11 @@ fun QueueItem(
                         Spacer(modifier = Modifier.width(8.dp))
                     }
 
-                    // 封面缩略图（添加 placeholder 和 error 占位）
+                    // 封面缩略图
+                    val coverData = getAlbumArtUri(track, coverCache)
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(getAlbumArtUri(track))
+                            .data(coverData)
                             .crossfade(true)
                             .build(),
                         contentDescription = null,
@@ -979,17 +995,12 @@ fun QueueItem(
                             .size(48.dp)
                             .clip(RoundedCornerShape(8.dp)),
                         placeholder = painterResource(R.drawable.ic_audio_track),
-                        error = rememberVectorPainter(
-                            Icons.Outlined.BrokenImage
-                        )
+                        error = painterResource(R.drawable.ic_audio_track)
                     )
 
                     Spacer(modifier = Modifier.width(12.dp))
 
-                    // 曲目信息
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = track.title,
                             style = MaterialTheme.typography.bodyLarge,
@@ -998,8 +1009,7 @@ fun QueueItem(
                             overflow = TextOverflow.Ellipsis,
                             color = if (isCurrentTrack)
                                 MaterialTheme.colorScheme.onPrimaryContainer
-                            else
-                                MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "${track.artist} • ${track.album}",
@@ -1008,12 +1018,10 @@ fun QueueItem(
                             overflow = TextOverflow.Ellipsis,
                             color = if (isCurrentTrack)
                                 MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
-                    // 时长
                     Text(
                         text = formatDuration(track.duration),
                         style = MaterialTheme.typography.labelSmall,
@@ -1032,6 +1040,7 @@ fun QueueItem(
 fun LocalMusicBottomSheet(
     tracks: List<Track>,
     isLoading: Boolean,
+    coverCache: Map<Long, String>,
     onDismiss: () -> Unit,
     onAddTrack: (Track) -> Unit,
     onAddAll: () -> Unit
@@ -1120,7 +1129,7 @@ fun LocalMusicBottomSheet(
                             ) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(LocalContext.current)
-                                        .data(getAlbumArtUri(track))
+                                        .data(getAlbumArtUri(track, coverCache))
                                         .crossfade(true)
                                         .build(),
                                     contentDescription = null,
@@ -1169,6 +1178,7 @@ fun LocalMusicBottomSheet(
 @Composable
 fun TrackDetailDialog(
     track: Track,
+    coverCache: Map<Long, String>,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -1186,7 +1196,7 @@ fun TrackDetailDialog(
             ) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
-                        .data(getAlbumArtUri(track))
+                        .data(getAlbumArtUri(track, coverCache))
                         .crossfade(true)
                         .build(),
                     contentDescription = null,
@@ -1247,6 +1257,6 @@ fun formatDuration(durationMs: Long): String {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
-fun getAlbumArtUri(track: Track): String {
-    return "content://media/external/audio/albumart/${track.id}"
+fun getAlbumArtUri(track: Track, coverCache: Map<Long, String>): Any {
+    return coverCache[track.id] ?: R.drawable.ic_audio_track
 }
