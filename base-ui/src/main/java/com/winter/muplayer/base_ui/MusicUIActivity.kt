@@ -180,17 +180,17 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
 
 
 
-        Scaffold(
+    Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "WinterMuPlayer",
+                        text = "WMPlayer-20260614-building",
                         fontWeight = FontWeight.Bold
                     )
                 },
                 actions = {
-                    IconButton(onClick = { showPluginManager = true }) {
+                    IconButton(onClick = { showPluginManager = !showPluginManager }) {
                         Icon(Icons.Outlined.Extension, contentDescription = "插件管理")
                     }
                 }
@@ -222,13 +222,24 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                 }
                 PluginManagerScreen()
             } else {
-                // 使用 LazyColumn 替代 Column + verticalScroll，避免滚动冲突
                 LazyColumn(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    // 播放控制区域
+                    item {
+                        PlayerControlCard(
+                            playerState = playerState,
+                            playMode = playMode,
+                            coverCache = coverCache,
+                            onPlay = musicPlayerCore::play,
+                            onPause = musicPlayerCore::pause,
+                            onStop = musicPlayerCore::stop,
+                            onNext = musicPlayerCore::playNext,
+                            onPrevious = musicPlayerCore::playPrevious,
+                            onSeek = musicPlayerCore::seekTo,
+                            onPlayModeChange = musicPlayerCore::setPlayMode
+                        )
+                    }
 
-                    // 搜索栏
                     item {
                         SearchBar(
                             query = searchQuery,
@@ -236,8 +247,6 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
                     }
-
-                    // 播放队列
 
                     item {
                         PlayQueueSection(
@@ -253,7 +262,6 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                         )
                     }
 
-                    // 底部间距
                     item {
                         Spacer(modifier = Modifier.height(80.dp))
                     }
@@ -395,7 +403,9 @@ fun AlbumArtwork(
     }
 
     Box(
-        modifier = modifier.scale(scale.value),
+        modifier = modifier
+            .scale(scale.value)
+            .size(200.dp),
         contentAlignment = Alignment.Center
     ) {
         if (track != null) {
