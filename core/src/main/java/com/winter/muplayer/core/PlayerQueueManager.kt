@@ -60,7 +60,7 @@ class PlayQueueManager {
         if (index !in currentList.indices) return@withLock
 
         _queue.update { list ->
-            list.toMutableList().apply { removeAt(index) }.toList()
+            list.toMutableList().apply { removeAt(index) }
         }
 
         val newList = _queue.value

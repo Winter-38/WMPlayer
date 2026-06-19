@@ -1,8 +1,6 @@
 package com.winter.muplayer.base_ui
 
-import android.media.MediaMetadataRetriever
 import android.os.Bundle
-import android.os.Environment
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.*
+import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -43,9 +43,13 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.winter.muplayer.core.MusicPlayerCore
+import com.winter.muplayer.core.scanner.LocalMusicScanner
 import com.winter.muplayer.model.*
+import com.winter.muplayer.plugin.PluginHost
+import com.winter.muplayer.plugin_api.SlotWidget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -93,30 +97,47 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     val scope = rememberCoroutineScope()
 
     val coverCache = remember { mutableStateMapOf<Long, String>() }
+    val scanner = remember { LocalMusicScanner(context) }
+
+    // 插件 UI Slot
+    val slotHost = remember { PluginHost(context) }
+    val slotWidgets = remember { mutableStateMapOf<String, List<SlotWidget>>() }
+
+    // 曲目切换时刷新插件 UI Slot
+    LaunchedEffect(playerState.currentTrack?.id) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            slotHost.discover()
+            slotHost.refreshSlots()
+        }
+        slotWidgets.clear()
+        slotWidgets.putAll(slotHost.slotWidgets)
+    }
 
     val rotation = remember { Animatable(0f) }
 
     var showPluginManager by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     var showTrackDetail by remember { mutableStateOf<Track?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var showLocalMusicSheet by remember { mutableStateOf(false) }
     var localMusicList by remember { mutableStateOf<List<Track>>(emptyList()) }
     var isLoadingLocal by remember { mutableStateOf(false) }
 
-
-    fun loadCover(id: Long, filePath: String) {
-        if (coverCache.containsKey(id)) return
+    /** 惰性加载文件系统曲目的封面（仅 albumId==0 的旧文件系统 track） */
+    fun loadCoverIfNeeded(track: Track) {
+        if (track.albumId > 0L || coverCache.containsKey(track.id)) return
+        val filePath = track.uri.removePrefix("file://")
         scope.launch(Dispatchers.IO) {
-            val retriever = MediaMetadataRetriever()
+            val retriever = android.media.MediaMetadataRetriever()
             try {
                 retriever.setDataSource(filePath)
                 val picture = retriever.embeddedPicture ?: return@launch
                 val cacheDir = java.io.File(context.cacheDir, "covers")
                 cacheDir.mkdirs()
-                val coverFile = java.io.File(cacheDir, "$id.jpg")
+                val coverFile = java.io.File(cacheDir, "${track.id}.jpg")
                 coverFile.writeBytes(picture)
-                coverCache[id] = coverFile.absolutePath
-            } catch (e: Exception) {
+                coverCache[track.id] = coverFile.absolutePath
+            } catch (_: Exception) {
                 // 无封面
             } finally {
                 retriever.release()
@@ -124,55 +145,25 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
         }
     }
 
-
-
-    fun createTrackFromFile(file: java.io.File): Track {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(file.absolutePath)
-            val id = file.hashCode().toLong()
-            // 触发封面提取
-            loadCover(id, file.absolutePath)
-            Track(
-                id = id,
-                title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: file.nameWithoutExtension,
-                artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "未知艺术家",
-                album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: "未知专辑",
-                duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0,
-                uri = file.absolutePath
-            )
-        } catch (e: Exception) {
-            Track(
-                id = file.hashCode().toLong(),
-                title = file.nameWithoutExtension,
-                artist = "未知艺术家",
-                album = "未知专辑",
-                duration = 0,
-                uri = file.absolutePath
-            )
-        } finally {
-            retriever.release()
-        }
-    }
-
-
     fun loadLocalMusic() {
         scope.launch {
+            if (Build.VERSION.SDK_INT >= 33) {
+                val permissionGranted = android.Manifest.permission.READ_MEDIA_AUDIO.let { perm ->
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                }
+                if (!permissionGranted) {
+                    Toast.makeText(context, "需要音频权限才能读取本地音乐", Toast.LENGTH_SHORT).show()
+                    isLoadingLocal = false
+                    return@launch
+                }
+            }
             isLoadingLocal = true
             localMusicList = withContext(Dispatchers.IO) {
-                val tracks = mutableListOf<Track>()
-                val dirs = ArrayDeque<java.io.File>()
-                val musicDir = java.io.File(Environment.getExternalStorageDirectory(), "Music")
-                if (musicDir.exists()) dirs.add(musicDir)
-                while (dirs.isNotEmpty()) {
-                    dirs.removeFirst().listFiles()?.forEach { file ->
-                        if (file.isDirectory) dirs.add(file)
-                        else if (file.name.matches(Regex(".*\\.(mp3|flac|wav|m4a|ogg)$"))) {
-                            tracks.add(createTrackFromFile(file))
-                        }
-                    }
-                }
-                tracks
+                scanner.scan()
+            }
+            // 对文件系统 track 触发封面惰性加载（异步，不阻塞）
+            for (track in localMusicList) {
+                loadCoverIfNeeded(track)
             }
             isLoadingLocal = false
         }
@@ -189,9 +180,15 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                         fontWeight = FontWeight.Bold
                     )
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
                 actions = {
                     IconButton(onClick = { showPluginManager = !showPluginManager }) {
                         Icon(Icons.Outlined.Extension, contentDescription = "插件管理")
+                    }
+                    IconButton(onClick = { showSettings = !showSettings }) {
+                        Icon(Icons.Outlined.Settings, contentDescription = "设置")
                     }
                 }
             )
@@ -215,8 +212,12 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
         }
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
-            if (showPluginManager) {
-                // 添加 BackHandler 处理返回
+            if (showSettings) {
+                BackHandler(enabled = showSettings) {
+                    showSettings = false
+                }
+                SettingsScreen(onBack = { showSettings = false })
+            } else if (showPluginManager) {
                 BackHandler(enabled = showPluginManager) {
                     showPluginManager = false
                 }
@@ -232,11 +233,18 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                             coverCache = coverCache,
                             onPlay = musicPlayerCore::play,
                             onPause = musicPlayerCore::pause,
-                            onStop = musicPlayerCore::stop,
                             onNext = musicPlayerCore::playNext,
                             onPrevious = musicPlayerCore::playPrevious,
                             onSeek = musicPlayerCore::seekTo,
                             onPlayModeChange = musicPlayerCore::setPlayMode
+                        )
+                    }
+
+                    // 插件 UI Slot：控制栏下方
+                    item {
+                        PluginSlot(
+                            slotName = "below_controls",
+                            widgets = slotWidgets["below_controls"] ?: emptyList()
                         )
                     }
 
@@ -245,6 +253,14 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                             query = searchQuery,
                             onQueryChange = { searchQuery = it },
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+
+                    // 插件 UI Slot：列表上方
+                    item {
+                        PluginSlot(
+                            slotName = "above_queue",
+                            widgets = slotWidgets["above_queue"] ?: emptyList()
                         )
                     }
 
@@ -307,7 +323,6 @@ fun PlayerControlCard(
     coverCache: Map<Long, String>,
     onPlay: () -> Unit,
     onPause: () -> Unit,
-    onStop: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeek: (Long) -> Unit,
@@ -316,15 +331,26 @@ fun PlayerControlCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
-        shape = RoundedCornerShape(24.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(28.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
         )
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ),
+                    shape = RoundedCornerShape(28.dp)
+                )
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // 专辑封面
@@ -359,7 +385,6 @@ fun PlayerControlCard(
                 playMode = playMode,
                 onPlay = onPlay,
                 onPause = onPause,
-                onStop = onStop,
                 onNext = onNext,
                 onPrevious = onPrevious,
                 onPlayModeChange = onPlayModeChange
@@ -380,25 +405,29 @@ fun AlbumArtwork(
     val rotation = remember { Animatable(0f) }
     val scale = remember { Animatable(1f) }
 
+    // 切歌时复位旋转角
+    LaunchedEffect(track?.id) {
+        rotation.snapTo(0f)
+    }
+
+    // 持续前进旋转（永不跳回 0，暂停时停在当前位置）
     LaunchedEffect(isPlaying) {
-        if (isPlaying) {
-            rotation.animateTo(
-                targetValue = 360f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(10000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Restart
+        if (isPlaying && track != null) {
+            while (isActive) {
+                rotation.animateTo(
+                    targetValue = rotation.value + 360f,
+                    animationSpec = tween(8000, easing = LinearEasing)
                 )
-            )
-        } else {
-            rotation.stop()
+            }
         }
     }
 
+    // 缩放动画（播放时微放大 + 暂停时复位）
     LaunchedEffect(isPlaying) {
         if (isPlaying) {
-            scale.animateTo(1.05f, animationSpec = tween(300))
+            scale.animateTo(1.08f, animationSpec = spring(dampingRatio = 0.5f))
         } else {
-            scale.animateTo(1f, animationSpec = tween(300))
+            scale.animateTo(1f, animationSpec = spring(dampingRatio = 0.5f))
         }
     }
 
@@ -409,23 +438,41 @@ fun AlbumArtwork(
         contentAlignment = Alignment.Center
     ) {
         if (track != null) {
-            if (track != null) {
-                val coverData = getAlbumArtUri(track, coverCache)
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(coverData)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = "专辑封面",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape)
-                        .graphicsLayer { rotationZ = if (isPlaying) rotation.value else 0f },
-                    placeholder = painterResource(R.drawable.ic_audio_track),
-                    error = painterResource(R.drawable.ic_audio_track)
-                )
-            }
+            val coverData = getAlbumArtUri(track, coverCache)
+            // 外发光阴影
+            Box(
+                modifier = Modifier
+                    .size(200.dp)
+                    .clip(CircleShape)
+                    .shadow(16.dp, CircleShape)
+            )
+            // 旋转的专辑封面
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(coverData)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = "专辑封面",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(
+                        brush = Brush.sweepGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            )
+                        )
+                    )
+                    .graphicsLayer {
+                        rotationZ = rotation.value
+                        shadowElevation = 8f
+                    },
+                placeholder = painterResource(R.drawable.ic_audio_track),
+                error = painterResource(R.drawable.ic_audio_track)
+            )
         } else {
             // 空白状态占位
             Box(
@@ -440,7 +487,8 @@ fun AlbumArtwork(
                                 MaterialTheme.colorScheme.tertiaryContainer
                             )
                         )
-                    ),
+                    )
+                    .shadow(16.dp, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -634,7 +682,6 @@ fun PlaybackControls(
     playMode: PlayMode,
     onPlay: () -> Unit,
     onPause: () -> Unit,
-    onStop: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onPlayModeChange: (PlayMode) -> Unit
@@ -664,7 +711,7 @@ fun PlaybackControls(
             size = 48.dp
         )
 
-        // 播放/暂停（缩放动画）
+        // 播放/暂停
         PlayPauseButton(
             isPlaying = playerState == PlayerState.PLAYING,
             isLoading = playerState == PlayerState.LOADING,
@@ -678,13 +725,6 @@ fun PlaybackControls(
             onClick = onNext,
             size = 48.dp
         )
-
-        // 停止
-        ControlButton(
-            icon = Icons.Filled.Stop,
-            onClick = onStop,
-            size = 48.dp
-        )
     }
 }
 
@@ -695,27 +735,49 @@ fun PlayPauseButton(
     onPlay: () -> Unit,
     onPause: () -> Unit
 ) {
+    var isPressed by remember { mutableStateOf(false) }
     val scale = remember { Animatable(1f) }
+    val iconTransition = remember { Animatable(if (isPlaying) 1f else 0f) }
 
+    // 点击弹跳效果
+    LaunchedEffect(isPressed) {
+        if (isPressed) {
+            scale.animateTo(0.9f, animationSpec = spring(dampingRatio = 0.8f))
+            scale.animateTo(1f, animationSpec = spring(dampingRatio = 0.4f))
+        }
+    }
+
+    // 播放/暂停图标平滑过渡
     LaunchedEffect(isPlaying) {
-        scale.animateTo(1.1f, animationSpec = spring(dampingRatio = 0.6f))
-        scale.animateTo(1f, animationSpec = spring(dampingRatio = 0.6f))
+        scale.animateTo(1.15f, animationSpec = spring(dampingRatio = 0.5f))
+        scale.animateTo(1f, animationSpec = spring(dampingRatio = 0.5f))
     }
 
     IconButton(
-        onClick = { if (isPlaying) onPause() else onPlay() },
+        onClick = {
+            isPressed = true
+            if (isPlaying) onPause() else onPlay()
+        },
         modifier = Modifier
             .size(72.dp)
             .scale(scale.value)
+            .shadow(8.dp, CircleShape)
             .background(
-                color = MaterialTheme.colorScheme.primaryContainer,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.primary.copy(
+                            alpha = 0.8f
+                        )
+                    )
+                ),
                 shape = CircleShape
             )
     ) {
         if (isLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(32.dp),
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.onPrimary,
                 strokeWidth = 3.dp
             )
         } else {
@@ -723,7 +785,7 @@ fun PlayPauseButton(
                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                 contentDescription = if (isPlaying) "暂停" else "播放",
                 modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                tint = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
@@ -744,20 +806,34 @@ fun PlayModeButton(
         PlayMode.SINGLE_LOOP -> "单曲"
     }
 
+    val isActive = playMode != PlayMode.SEQUENTIAL
+    val activeColor = MaterialTheme.colorScheme.primary
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        ControlButton(
-            icon = icon,
-            onClick = onClick,
-            size = 40.dp,
-            tint = if (playMode != PlayMode.SEQUENTIAL)
-                MaterialTheme.colorScheme.primary
-            else
-                MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isActive) activeColor.copy(alpha = 0.1f)
+                    else Color.Transparent
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                modifier = Modifier.size(24.dp),
+                tint = if (isActive) activeColor
+                       else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (isActive) activeColor
+                    else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -937,6 +1013,13 @@ fun QueueItem(
         }
     )
 
+    val animatedBgColor by animateColorAsState(
+        targetValue = if (isCurrentTrack)
+            MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surface,
+        animationSpec = tween(300), label = "queueItemBg"
+    )
+
     SwipeToDismissBox(
         state = swipeState,
         modifier = modifier,
@@ -969,10 +1052,7 @@ fun QueueItem(
                     ),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isCurrentTrack)
-                        MaterialTheme.colorScheme.primaryContainer
-                    else
-                        MaterialTheme.colorScheme.surface
+                    containerColor = animatedBgColor
                 ),
                 elevation = CardDefaults.cardElevation(
                     defaultElevation = if (isCurrentTrack) 4.dp else 0.dp
@@ -982,15 +1062,18 @@ fun QueueItem(
                     modifier = Modifier.fillMaxWidth().padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isCurrentTrack) {
-                        Icon(
-                            Icons.Filled.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
+                    // 当前播放指示器竖条
+                    Box(
+                        modifier = Modifier
+                            .width(4.dp)
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(
+                                if (isCurrentTrack) MaterialTheme.colorScheme.primary
+                                else Color.Transparent
+                            )
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
 
                     // 封面缩略图
                     val coverData = getAlbumArtUri(track, coverCache)
@@ -1011,16 +1094,29 @@ fun QueueItem(
                     Spacer(modifier = Modifier.width(12.dp))
 
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = track.title,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (isCurrentTrack) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = if (isCurrentTrack)
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onSurface
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = track.title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (isCurrentTrack) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = if (isCurrentTrack)
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (isCurrentTrack) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    Icons.Filled.MusicNote,
+                                    contentDescription = "正在播放",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "${track.artist} • ${track.album}",
                             style = MaterialTheme.typography.bodySmall,
@@ -1032,11 +1128,20 @@ fun QueueItem(
                         )
                     }
 
-                    Text(
-                        text = formatDuration(track.duration),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // 时长标签
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                    ) {
+                        Text(
+                            text = formatDuration(track.duration),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1268,5 +1373,12 @@ fun formatDuration(durationMs: Long): String {
 }
 
 fun getAlbumArtUri(track: Track, coverCache: Map<Long, String>): Any {
+    // MediaStore 方式：直接使用 album art content URI（Coil 可直接加载）
+    if (track.albumId > 0L) {
+        return android.net.Uri.parse(
+            "content://media/external/audio/albumart/${track.albumId}"
+        )
+    }
+    // 文件系统方式：检查 coverCache 中的本地提取封面
     return coverCache[track.id] ?: R.drawable.ic_audio_track
 }
