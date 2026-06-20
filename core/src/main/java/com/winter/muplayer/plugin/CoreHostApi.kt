@@ -1,6 +1,8 @@
 package com.winter.muplayer.plugin
 
 /**
- * @deprecated CoreHostApi 已不再需要（插件通过 ContentProvider 通信）。
- * 此文件保留仅用作编译过渡，内容为空。
+ * 这个文件……嗯，也是过去式。
+ *
+ * CoreHostApi 以前是给插件提供宿主 API 的，
+ * 现在插件都通过 ContentProvider 聊天了，所以这个就光荣退休啦～
  */

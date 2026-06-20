@@ -9,7 +9,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-
+/**
+ * 设置页面～目前还在建设中啦！
+ * 之后会加音效、主题、缓存管理这些选项，
+ * 现在就先看看占位符，过过眼瘾吧 (〃∀〃)
+ */
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit
@@ -17,7 +21,7 @@ fun SettingsScreen(
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
-        // 顶部标题行：返回按钮 + "设置"
+        // 顶部的返回栏
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -39,7 +43,7 @@ fun SettingsScreen(
             )
         }
 
-        // 内容区域居中
+        // 内容区域——现在只是个萌萌的占位符
         Box(
             modifier = Modifier
                 .fillMaxSize(),

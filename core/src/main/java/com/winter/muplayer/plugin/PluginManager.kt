@@ -1,6 +1,8 @@
 package com.winter.muplayer.plugin
 
 /**
- * @deprecated 插件管理已迁移至 [PluginHost]。
- * 此文件保留仅用作编译过渡，内容为空。
+ * 这个文件也是过去式啦～
+ *
+ * 插件管理的活现在都是 [PluginHost] 在干，
+ * 这个就当个存根留着吧，别删我呀！
  */

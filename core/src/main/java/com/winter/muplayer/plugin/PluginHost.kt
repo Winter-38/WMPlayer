@@ -208,9 +208,9 @@ class PluginHost(
 
     private fun handlePluginResponse(plugin: PluginInfo, response: Bundle?) {
         val action = response?.getString(PluginContract.KEY_REQUEST_ACTION) ?: return
-        // 权限校验：只有声明了 playback_control 的插件才能控制播放
-        if (PluginContract.PERMISSION_PLAYBACK_CONTROL in plugin.permissions
-            || plugin.permissions.isEmpty()) {
+        // 权限校验：只有显式声明了 playback_control 权限的插件才能控制播放
+        // 空权限或缺失权限的插件不允许控制播放（最小权限原则）
+        if (PluginContract.PERMISSION_PLAYBACK_CONTROL in plugin.permissions) {
             onAction?.invoke(action, response)
         } else {
             Log.w(PluginContract.TAG,

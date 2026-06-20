@@ -75,6 +75,7 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
     }
 
     init {
+        // 把监听器挂上去，播放器有啥动静咱都知道～
         exoPlayer.addListener(playerListener)
     }
 

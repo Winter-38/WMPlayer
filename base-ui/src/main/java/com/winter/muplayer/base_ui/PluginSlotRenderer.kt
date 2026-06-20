@@ -22,17 +22,20 @@ import com.winter.muplayer.plugin_api.PluginContract
 import com.winter.muplayer.plugin_api.SlotWidget
 
 /**
- * 渲染一个插件 Slot 位置的所有 Widget。
+ * 渲染插件塞过来的 UI 小部件～
+ * 插件可以用这个机制在播放器界面上嵌入自己的内容。
  *
- * @param slotName  slot 名称，如 "below_controls"
- * @param widgets   该 slot 中的 widget 列表
- * @param background  是否包裹背景 Card
+ * @param slotName  Slot 的名字，比如 "below_controls"（控制按钮下面）
+ * @param widgets   这个 Slot 里要展示的小部件列表
+ * @param background  要不要在外面包一层 Card 背景呀？
+ * @param onWidgetAction  插件按钮被点击的时候会调这个回调，告诉你 action 是啥
  */
 @Composable
 fun PluginSlot(
     slotName: String,
     widgets: List<SlotWidget>,
-    background: Boolean = true
+    background: Boolean = true,
+    onWidgetAction: (String) -> Unit = {}
 ) {
     if (widgets.isEmpty()) return
 
@@ -44,7 +47,7 @@ fun PluginSlot(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             widgets.forEach { widget ->
-                SlotWidgetItem(widget = widget)
+                SlotWidgetItem(widget = widget, onAction = onWidgetAction)
             }
         }
     }
@@ -66,8 +69,12 @@ fun PluginSlot(
     }
 }
 
+/**
+ * 单个 Widget 的渲染逻辑～
+ * 根据 type 不同，可以渲染成文字、跑马灯、图片或者按钮。
+ */
 @Composable
-private fun SlotWidgetItem(widget: SlotWidget) {
+private fun SlotWidgetItem(widget: SlotWidget, onAction: (String) -> Unit = {}) {
     val color = try {
         Color(android.graphics.Color.parseColor(widget.color))
     } catch (_: Exception) {
@@ -149,7 +156,7 @@ private fun SlotWidgetItem(widget: SlotWidget) {
                 }
             ) {
                 androidx.compose.material3.Button(
-                    onClick = { /* 按钮点击由 MusicPlayerCore 处理 */ }
+                    onClick = { onAction(widget.action) }
                 ) {
                     Text(widget.content)
                 }

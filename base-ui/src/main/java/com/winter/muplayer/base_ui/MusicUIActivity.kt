@@ -13,6 +13,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -50,7 +51,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// ==================== 主 Activity ====================
+// ==================== 主界面 Activity — App 的入口就在这里啦 ====================
 
 class MusicUIActivity : ComponentActivity() {
 
@@ -81,7 +82,7 @@ class MusicUIActivity : ComponentActivity() {
 }
 
 
-// ==================== 主应用组件 ====================
+// ==================== 主界面组件 — 所有 UI 拼在一起就是它了 ====================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
@@ -96,18 +97,29 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     val coverCache = remember { mutableStateMapOf<Long, String>() }
     val scanner = remember { LocalMusicScanner(context) }
 
-    // 插件 UI Slot
-    val slotHost = remember { PluginHost(context) }
+    // 监听列表滚动位置，控制顶部栏淡出 & 收缩
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val scrollProgress by remember {
+        val fadeThreshold = with(density) { 120.dp.toPx() }
+        derivedStateOf {
+            val scrollOffset = listState.firstVisibleItemScrollOffset.toFloat()
+            if (listState.firstVisibleItemIndex > 0) 1f
+            else (scrollOffset / fadeThreshold).coerceIn(0f, 1f)
+        }
+    }
+
+    // 插件 UI Slot（使用 MusicPlayerCore 中的共享 PluginHost 实例）
     val slotWidgets = remember { mutableStateMapOf<String, List<SlotWidget>>() }
 
-    // 曲目切换时刷新插件 UI Slot
+    // 首次加载 + 曲目切换时刷新插件 UI Slot
     LaunchedEffect(playerState.currentTrack?.id) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            slotHost.discover()
-            slotHost.refreshSlots()
+            musicPlayerCore.pluginHost.discover()
+            musicPlayerCore.pluginHost.refreshSlots()
         }
         slotWidgets.clear()
-        slotWidgets.putAll(slotHost.slotWidgets)
+        slotWidgets.putAll(musicPlayerCore.pluginHost.slotWidgets)
     }
 
     val rotation = remember { Animatable(0f) }
@@ -115,7 +127,6 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     var showPluginManager by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showTrackDetail by remember { mutableStateOf<Track?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
     var showLocalMusicSheet by remember { mutableStateOf(false) }
     var localMusicList by remember { mutableStateOf<List<Track>>(emptyList()) }
     var isLoadingLocal by remember { mutableStateOf(false) }
@@ -169,12 +180,85 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
 
 
     val isMainScreen = !showSettings && !showPluginManager
-    val currentTopBar: @Composable () -> Unit = if (isMainScreen) {
-        {
+    val statusBarHeight = with(density) {
+        WindowInsets.statusBars.getTop(density).toDp()
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (showSettings) {
+            BackHandler(enabled = showSettings) { showSettings = false }
+            SettingsScreen(onBack = { showSettings = false })
+        } else if (showPluginManager) {
+            BackHandler(enabled = showPluginManager) { showPluginManager = false }
+            PluginManagerScreen(
+                pluginHost = musicPlayerCore.pluginHost,
+                onBack = { showPluginManager = false }
+            )
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                item { Spacer(modifier = Modifier.height(56.dp + statusBarHeight)) }
+
+                item {
+                    PlayerControlCard(
+                        playerState = playerState,
+                        playMode = playMode,
+                        coverCache = coverCache,
+                        onPlay = musicPlayerCore::play,
+                        onPause = musicPlayerCore::pause,
+                        onNext = musicPlayerCore::playNext,
+                        onPrevious = musicPlayerCore::playPrevious,
+                        onSeek = musicPlayerCore::seekTo,
+                        onPlayModeChange = musicPlayerCore::setPlayMode
+                    )
+                }
+
+                item {
+                    PluginSlot(
+                        slotName = "below_controls",
+                        widgets = slotWidgets["below_controls"] ?: emptyList(),
+                        onWidgetAction = { action ->
+                            android.util.Log.d("PluginSlot", "Widget action: $action")
+                        }
+                    )
+                }
+
+                item {
+                    PluginSlot(
+                        slotName = "above_queue",
+                        widgets = slotWidgets["above_queue"] ?: emptyList(),
+                        onWidgetAction = { action ->
+                            android.util.Log.d("PluginSlot", "Widget action: $action")
+                        }
+                    )
+                }
+
+                item {
+                    PlayQueueSection(
+                        queue = queue,
+                        currentIndex = currentIndex,
+                        coverCache = coverCache,
+                        onPlayTrack = musicPlayerCore::playTrackAtIndex,
+                        onRemoveTrack = musicPlayerCore::removeTrack,
+                        onClearQueue = musicPlayerCore::clearQueue,
+                        onTrackLongPress = { track -> showTrackDetail = track },
+                        modifier = Modifier.heightIn(max = 600.dp)
+                    )
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(80.dp))
+                }
+            }
+
+            // (◕‿◕✿) 浮层标题栏 —— 下滑时淡出，内容从下面自然露出来
             TopAppBar(
+                modifier = Modifier.graphicsLayer { alpha = 1f - scrollProgress },
                 title = {
                     Text(
-                        text = "WMPlayer-0.3.3-SNAPSHOT",
+                        text = "WMPlayer-0.4.3-SNAPSHOT",
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -190,13 +274,14 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                     }
                 }
             )
-        }
-    } else {
-        {}
-    }
-    val currentFab: @Composable () -> Unit = if (isMainScreen) {
-        {
+
+            // (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧ 添加本地音乐按钮 —— 也跟着淡出
             FloatingActionButton(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 28.dp, bottom = 32.dp)
+                    .size(72.dp)
+                    .graphicsLayer { alpha = 1f - scrollProgress },
                 onClick = {
                     showLocalMusicSheet = true
                     if (localMusicList.isEmpty()) {
@@ -208,87 +293,9 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                 Icon(
                     painterResource(R.drawable.ic_library_music),
                     contentDescription = "添加本地音乐",
+                    modifier = Modifier.size(32.dp),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
-            }
-        }
-    } else {
-        {}
-    }
-
-    Scaffold(
-        topBar = currentTopBar,
-        floatingActionButton = currentFab
-    ) { paddingValues ->
-        Box(modifier = Modifier.padding(paddingValues)) {
-            if (showSettings) {
-                BackHandler(enabled = showSettings) {
-                    showSettings = false
-                }
-                SettingsScreen(onBack = { showSettings = false })
-            } else if (showPluginManager) {
-                BackHandler(enabled = showPluginManager) {
-                    showPluginManager = false
-                }
-                PluginManagerScreen(onBack = { showPluginManager = false })
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    item {
-                        PlayerControlCard(
-                            playerState = playerState,
-                            playMode = playMode,
-                            coverCache = coverCache,
-                            onPlay = musicPlayerCore::play,
-                            onPause = musicPlayerCore::pause,
-                            onNext = musicPlayerCore::playNext,
-                            onPrevious = musicPlayerCore::playPrevious,
-                            onSeek = musicPlayerCore::seekTo,
-                            onPlayModeChange = musicPlayerCore::setPlayMode
-                        )
-                    }
-
-                    item {
-                        PluginSlot(
-                            slotName = "below_controls",
-                            widgets = slotWidgets["below_controls"] ?: emptyList()
-                        )
-                    }
-
-                    item {
-                        SearchBar(
-                            query = searchQuery,
-                            onQueryChange = { searchQuery = it },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                    }
-
-                    item {
-                        PluginSlot(
-                            slotName = "above_queue",
-                            widgets = slotWidgets["above_queue"] ?: emptyList()
-                        )
-                    }
-
-                    item {
-                        PlayQueueSection(
-                            queue = queue,
-                            currentIndex = currentIndex,
-                            searchQuery = searchQuery,
-                            coverCache = coverCache,
-                            onPlayTrack = musicPlayerCore::playTrackAtIndex,
-                            onRemoveTrack = musicPlayerCore::removeTrack,
-                            onClearQueue = musicPlayerCore::clearQueue,
-                            onTrackLongPress = { track -> showTrackDetail = track },
-                            modifier = Modifier.heightIn(max = 600.dp)
-                        )
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(80.dp))
-                    }
-                }
             }
         }
     }
@@ -296,10 +303,11 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
 
     @Suppress("UNUSED_VALUE")
     if (showLocalMusicSheet) {
-        LocalMusicBottomSheet(
+        CategorizedMusicSheet(
             tracks = localMusicList,
             isLoading = isLoadingLocal,
             coverCache = coverCache,
+            playlistManager = musicPlayerCore.playlistManager,
             onDismiss = { showLocalMusicSheet = false },
             onAddTrack = { track ->
                 musicPlayerCore.addTrack(track)
@@ -321,7 +329,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     }
 }
 
-// ==================== 播放控制卡片 ====================
+// ==================== 播放控制卡片 — 封面、进度条、播放按钮都在这儿 ====================
 
 @Composable
 fun PlayerControlCard(
@@ -395,7 +403,7 @@ fun PlayerControlCard(
     }
 }
 
-// ==================== 专辑封面（带旋转动画） ====================
+// ==================== 专辑封面 — 会转圈圈的那种哦 ====================
 
 @Composable
 fun AlbumArtwork(
@@ -487,7 +495,7 @@ fun AlbumArtwork(
     }
 }
 
-// ==================== 曲目信息跑马灯 ====================
+// ==================== 曲目信息 & 跑马灯 — 歌名太长？让它自己动起来 ====================
 
 @Composable
 fun TrackInfoMarquee(
@@ -587,7 +595,7 @@ fun MarqueeText(
     }
 }
 
-// ==================== 进度条（带预览） ====================
+// ==================== 进度条 — 拖到哪儿会显示时间预览哦 ====================
 @Composable
 fun SeekBarWithPreview(
     progress: Long,
@@ -667,7 +675,7 @@ fun SeekBarWithPreview(
     }
 }
 
-// ==================== 播放控制按钮 ====================
+// ==================== 播放控制按钮 — 播放/暂停、上一首/下一首、播放模式 ====================
 
 @Composable
 fun PlaybackControls(
@@ -847,7 +855,7 @@ fun ControlButton(
     }
 }
 
-// ==================== 搜索栏 ====================
+// ==================== 搜索栏 — 在队列里找歌 ====================
 
 @Composable
 fun SearchBar(
@@ -861,7 +869,7 @@ fun SearchBar(
         modifier = modifier.fillMaxWidth(),
         placeholder = { Text("搜索本地音乐...") },
         leadingIcon = {
-            Icon(painterResource(R.drawable.ic_search_off), contentDescription = null)
+            Icon(painterResource(R.drawable.ic_search), contentDescription = "搜索")
         },
         trailingIcon = {
             if (query.isNotEmpty()) {
@@ -875,13 +883,12 @@ fun SearchBar(
     )
 }
 
-// ==================== 播放队列 ====================
+// ==================== 播放队列 — 接下来要播什么 ====================
 
 @Composable
 fun PlayQueueSection(
     queue: List<QueueEntry>,
     currentIndex: Int,
-    searchQuery: String,
     coverCache: Map<Long, String>,
     onPlayTrack: (Int) -> Unit,
     onRemoveTrack: (Int) -> Unit,
@@ -889,15 +896,6 @@ fun PlayQueueSection(
     onTrackLongPress: (Track) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val filteredQueue = remember(queue, searchQuery) {
-        if (searchQuery.isBlank()) queue
-        else queue.filter { entry ->
-            entry.track.title.contains(searchQuery, ignoreCase = true) ||
-                    entry.track.artist.contains(searchQuery, ignoreCase = true) ||
-                    entry.track.album.contains(searchQuery, ignoreCase = true)
-        }
-    }
-
     Column(
         modifier = modifier.fillMaxWidth()
     ) {
@@ -920,10 +918,10 @@ fun PlayQueueSection(
             }
         }
 
-        if (filteredQueue.isEmpty()) {
+        if (queue.isEmpty()) {
             EmptyQueuePlaceholder(
-                isEmpty = queue.isEmpty(),
-                isNoResult = searchQuery.isNotBlank() && queue.isNotEmpty()
+                isEmpty = true,
+                isNoResult = false
             )
         } else {
             LazyColumn(
@@ -932,17 +930,15 @@ fun PlayQueueSection(
                     .weight(1f, fill = false)
             ) {
                 itemsIndexed(
-                    items = filteredQueue,
+                    items = queue,
                     key = { _, entry -> entry.uid }
                 ) { index, entry ->
-                    // 通过 uid 找到在完整队列中的实际索引（支持搜索过滤和重复曲目）
-                    val queueIndex = queue.indexOf(entry)
                     QueueItem(
                         track = entry.track,
-                        isCurrentTrack = queueIndex == currentIndex,
+                        isCurrentTrack = index == currentIndex,
                         coverCache = coverCache,
-                        onPlay = { onPlayTrack(queueIndex) },
-                        onRemove = { onRemoveTrack(queueIndex) },
+                        onPlay = { onPlayTrack(index) },
+                        onRemove = { onRemoveTrack(index) },
                         onLongPress = { onTrackLongPress(entry.track) }
                     )
                 }
@@ -1149,7 +1145,7 @@ fun QueueItem(
     )
 }
 
-// ==================== 本地音乐 BottomSheet ====================
+// ==================== 本地音乐 — 从手机里选歌 ====================
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1290,7 +1286,7 @@ fun LocalMusicBottomSheet(
     }
 }
 
-// ==================== 曲目详情弹窗 ====================
+// ==================== 曲目详情 — 点一下看看这首歌的完整信息 ====================
 @Composable
 fun TrackDetailDialog(
     track: Track,
@@ -1366,7 +1362,7 @@ fun DetailItem(label: String, value: String) {
     }
 }
 
-// ==================== 工具函数 ====================
+// ==================== 工具函数 — 格式化时间、找封面啥的 ====================
 
 fun formatDuration(durationMs: Long): String {
     if (durationMs <= 0) return "--:--"
