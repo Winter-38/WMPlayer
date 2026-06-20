@@ -26,7 +26,9 @@ import java.io.File
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PluginManagerScreen() {
+fun PluginManagerScreen(
+    onBack: () -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -77,18 +79,28 @@ fun PluginManagerScreen() {
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
+        modifier = Modifier.fillMaxSize()
     ) {
-        // 顶部标题 + 操作按钮
+        // 顶部标题 + 操作按钮（边缘到边缘）
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("插件管理", style = MaterialTheme.typography.headlineSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 返回按钮 + 标题
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        painterResource(R.drawable.ic_arrow_back),
+                        contentDescription = "返回"
+                    )
+                }
+                Text("插件管理", style = MaterialTheme.typography.headlineSmall)
+            }
+            Row(
+                modifier = Modifier.padding(end = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 // 刷新按钮
                 IconButton(onClick = { refreshPlugins() }) {
                     Icon(
@@ -109,11 +121,12 @@ fun PluginManagerScreen() {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // 说明文本
+        // 说明文本（与上方"插件管理"文字左对齐）
         Text(
             "插件是独立安装的 APK 应用。安装后点击刷新即可识别。",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 48.dp)
         )
 
         Spacer(modifier = Modifier.height(8.dp))

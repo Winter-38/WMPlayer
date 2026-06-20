@@ -23,7 +23,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
@@ -40,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.winter.muplayer.core.MusicPlayerCore
+import com.winter.muplayer.core.QueueEntry
 import com.winter.muplayer.core.scanner.LocalMusicScanner
 import com.winter.muplayer.model.*
 import com.winter.muplayer.plugin.PluginHost
@@ -120,7 +120,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     var localMusicList by remember { mutableStateOf<List<Track>>(emptyList()) }
     var isLoadingLocal by remember { mutableStateOf(false) }
 
-    /** 惰性加载文件系统曲目的封面（仅 albumId==0 的旧文件系统 track） */
+
     fun loadCoverIfNeeded(track: Track) {
         if (track.albumId > 0L || coverCache.containsKey(track.id)) return
         val filePath = track.uri.removePrefix("file://")
@@ -158,7 +158,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
             localMusicList = withContext(Dispatchers.IO) {
                 scanner.scan()
             }
-            // 对文件系统 track 触发封面惰性加载（异步，不阻塞）
+
             for (track in localMusicList) {
                 loadCoverIfNeeded(track)
             }
@@ -168,12 +168,13 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
 
 
 
-    Scaffold(
-        topBar = {
+    val isMainScreen = !showSettings && !showPluginManager
+    val currentTopBar: @Composable () -> Unit = if (isMainScreen) {
+        {
             TopAppBar(
                 title = {
                     Text(
-                        text = "WMPlayer-0.2.3-SNAPSHOT",
+                        text = "WMPlayer-0.3.3-SNAPSHOT",
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -189,8 +190,12 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                     }
                 }
             )
-        },
-        floatingActionButton = {
+        }
+    } else {
+        {}
+    }
+    val currentFab: @Composable () -> Unit = if (isMainScreen) {
+        {
             FloatingActionButton(
                 onClick = {
                     showLocalMusicSheet = true
@@ -207,6 +212,13 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                 )
             }
         }
+    } else {
+        {}
+    }
+
+    Scaffold(
+        topBar = currentTopBar,
+        floatingActionButton = currentFab
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
             if (showSettings) {
@@ -218,7 +230,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                 BackHandler(enabled = showPluginManager) {
                     showPluginManager = false
                 }
-                PluginManagerScreen()
+                PluginManagerScreen(onBack = { showPluginManager = false })
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize()
@@ -237,7 +249,6 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                         )
                     }
 
-                    // 插件 UI Slot：控制栏下方
                     item {
                         PluginSlot(
                             slotName = "below_controls",
@@ -253,7 +264,6 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                         )
                     }
 
-                    // 插件 UI Slot：列表上方
                     item {
                         PluginSlot(
                             slotName = "above_queue",
@@ -283,7 +293,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
         }
     }
 
-    // 本地音乐搜索 BottomSheet
+
     @Suppress("UNUSED_VALUE")
     if (showLocalMusicSheet) {
         LocalMusicBottomSheet(
@@ -339,12 +349,7 @@ fun PlayerControlCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                            MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    ),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(28.dp)
                 )
                 .padding(24.dp),
@@ -407,7 +412,6 @@ fun AlbumArtwork(
         rotation.snapTo(0f)
     }
 
-    // 持续前进旋转（永不跳回 0，暂停时停在当前位置）
     LaunchedEffect(isPlaying) {
         if (isPlaying && track != null) {
             while (isActive) {
@@ -440,7 +444,7 @@ fun AlbumArtwork(
                 modifier = Modifier
                     .size(200.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFFE1BEE7)) // 淡紫色占位背景
+                    .background(Color(0xFFE1BEE7))
                     .shadow(16.dp, CircleShape)
             ) {
                 if (hasCover) {
@@ -463,12 +467,12 @@ fun AlbumArtwork(
                 }
             }
         } else {
-            // 空白状态：淡紫色圆形 + 音乐图标
+            // 空白状态：纯色圆形 + 音乐图标
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
-                    .background(Color(0xFFE1BEE7)) // 淡紫色（替换了原 sweepGradient 多边形渐变）
+                    .background(Color(0xFFE1BEE7))
                     .shadow(16.dp, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
@@ -536,8 +540,11 @@ fun MarqueeText(
 
     val offset = remember { Animatable(0f) }
 
+    // 文本是否超出容器宽度
+    val isOverflowing = textWidth.intValue > containerWidth.intValue
+
     LaunchedEffect(text, isPlaying, textWidth.intValue, containerWidth.intValue) {
-        if (textWidth.intValue > containerWidth.intValue && isPlaying) {
+        if (isOverflowing && isPlaying) {
             while (true) {
                 offset.animateTo(
                     targetValue = -(textWidth.intValue - containerWidth.intValue).toFloat(),
@@ -569,7 +576,12 @@ fun MarqueeText(
             maxLines = 1,
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .offset(x = with(density) { offset.value.toDp() })
+                .offset(x = with(density) {
+                    // 文本未超出时居中显示
+                    val centerOffset = if (isOverflowing) 0f
+                        else ((containerWidth.intValue - textWidth.intValue) / 2f)
+                    (centerOffset + offset.value).toDp()
+                })
                 .onSizeChanged { textWidth.intValue = it.width }
         )
     }
@@ -744,14 +756,7 @@ fun PlayPauseButton(
             .scale(scale.value)
             .shadow(8.dp, CircleShape)
             .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.primary.copy(
-                            alpha = 0.8f
-                        )
-                    )
-                ),
+                color = MaterialTheme.colorScheme.primary,
                 shape = CircleShape
             )
     ) {
@@ -790,7 +795,10 @@ fun PlayModeButton(
     val isActive = playMode != PlayMode.SEQUENTIAL
     val activeColor = MaterialTheme.colorScheme.primary
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -871,7 +879,7 @@ fun SearchBar(
 
 @Composable
 fun PlayQueueSection(
-    queue: List<Track>,
+    queue: List<QueueEntry>,
     currentIndex: Int,
     searchQuery: String,
     coverCache: Map<Long, String>,
@@ -883,10 +891,10 @@ fun PlayQueueSection(
 ) {
     val filteredQueue = remember(queue, searchQuery) {
         if (searchQuery.isBlank()) queue
-        else queue.filter {
-            it.title.contains(searchQuery, ignoreCase = true) ||
-                    it.artist.contains(searchQuery, ignoreCase = true) ||
-                    it.album.contains(searchQuery, ignoreCase = true)
+        else queue.filter { entry ->
+            entry.track.title.contains(searchQuery, ignoreCase = true) ||
+                    entry.track.artist.contains(searchQuery, ignoreCase = true) ||
+                    entry.track.album.contains(searchQuery, ignoreCase = true)
         }
     }
 
@@ -918,24 +926,24 @@ fun PlayQueueSection(
                 isNoResult = searchQuery.isNotBlank() && queue.isNotEmpty()
             )
         } else {
-            // 使用 LazyColumn 优化长列表，配合 heightIn 限制高度
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f, fill = false)  // 使用 weight 避免无限高度
+                    .weight(1f, fill = false)
             ) {
                 itemsIndexed(
                     items = filteredQueue,
-                    key = { _, track -> track.id }  // key 优化
-                ) { index, track ->
-                    val originalIndex = queue.indexOf(track)
+                    key = { _, entry -> entry.uid }
+                ) { index, entry ->
+                    // 通过 uid 找到在完整队列中的实际索引（支持搜索过滤和重复曲目）
+                    val queueIndex = queue.indexOf(entry)
                     QueueItem(
-                        track = track,
-                        isCurrentTrack = originalIndex == currentIndex,
+                        track = entry.track,
+                        isCurrentTrack = queueIndex == currentIndex,
                         coverCache = coverCache,
-                        onPlay = { onPlayTrack(originalIndex) },
-                        onRemove = { onRemoveTrack(originalIndex) },
-                        onLongPress = { onTrackLongPress(track) }
+                        onPlay = { onPlayTrack(queueIndex) },
+                        onRemove = { onRemoveTrack(queueIndex) },
+                        onLongPress = { onTrackLongPress(entry.track) }
                     )
                 }
             }
@@ -983,9 +991,13 @@ fun QueueItem(
     onLongPress: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 防止 SwipeToDismissBox 动画递归触发多次删除
+    var removed by remember { mutableStateOf(false) }
+
     val swipeState = rememberSwipeToDismissBoxState(
         confirmValueChange = { dismissValue ->
-            if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
+            if (dismissValue == SwipeToDismissBoxValue.EndToStart && !removed) {
+                removed = true
                 onRemove()
                 true
             } else {
@@ -1216,7 +1228,7 @@ fun LocalMusicBottomSheet(
                 LazyColumn {
                     itemsIndexed(
                         items = tracks,
-                        key = { _, track -> track.id }
+                        key = { index, track -> "${track.id}_$index" }
                     ) { _, track ->
                         Card(
                             modifier = Modifier
