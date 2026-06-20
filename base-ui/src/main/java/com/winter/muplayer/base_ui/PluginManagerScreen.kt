@@ -8,13 +8,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.winter.muplayer.plugin.PluginHost
 import java.io.File
@@ -93,7 +92,7 @@ fun PluginManagerScreen() {
                 // 刷新按钮
                 IconButton(onClick = { refreshPlugins() }) {
                     Icon(
-                        if (isLoading) Icons.Filled.HourglassTop else Icons.Filled.Refresh,
+                        if (isLoading) painterResource(R.drawable.ic_hourglass_top) else painterResource(R.drawable.ic_refresh),
                         contentDescription = "刷新"
                     )
                 }
@@ -101,7 +100,7 @@ fun PluginManagerScreen() {
                 Button(onClick = {
                     installLauncher.launch(arrayOf("application/vnd.android.package-archive"))
                 }) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Icon(painterResource(R.drawable.ic_add), contentDescription = null)
                     Spacer(Modifier.width(4.dp))
                     Text("安装 APK")
                 }
@@ -136,7 +135,7 @@ fun PluginManagerScreen() {
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        Icons.Filled.ExtensionOff,
+                        painter = painterResource(R.drawable.ic_extendsion_off),
                         contentDescription = null,
                         modifier = Modifier.size(48.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -216,7 +215,7 @@ private fun PluginCard(
                 }
             }
             IconButton(onClick = onUninstall) {
-                Icon(Icons.Filled.Delete, contentDescription = "卸载插件")
+                Icon(painterResource(R.drawable.ic_delete), contentDescription = "卸载插件")
             }
         }
     }

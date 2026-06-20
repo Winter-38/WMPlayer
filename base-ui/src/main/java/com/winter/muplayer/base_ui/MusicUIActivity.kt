@@ -15,9 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,7 +26,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -176,7 +173,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
             TopAppBar(
                 title = {
                     Text(
-                        text = "WMPlayer-20260614-building",
+                        text = "WMPlayer-0.2.3-SNAPSHOT",
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -185,10 +182,10 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                 ),
                 actions = {
                     IconButton(onClick = { showPluginManager = !showPluginManager }) {
-                        Icon(Icons.Outlined.Extension, contentDescription = "插件管理")
+                        Icon(painterResource(R.drawable.ic_extendsion), contentDescription = "插件管理")
                     }
                     IconButton(onClick = { showSettings = !showSettings }) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "设置")
+                        Icon(painterResource(R.drawable.ic_settings), contentDescription = "设置")
                     }
                 }
             )
@@ -204,7 +201,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                 containerColor = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Icon(
-                    Icons.Filled.LibraryMusic,
+                    painterResource(R.drawable.ic_library_music),
                     contentDescription = "添加本地音乐",
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -438,61 +435,45 @@ fun AlbumArtwork(
         contentAlignment = Alignment.Center
     ) {
         if (track != null) {
-            val coverData = getAlbumArtUri(track, coverCache)
-            // 外发光阴影
+            val hasCover = coverCache.containsKey(track.id) || track.albumId > 0L
             Box(
                 modifier = Modifier
                     .size(200.dp)
                     .clip(CircleShape)
+                    .background(Color(0xFFE1BEE7)) // 淡紫色占位背景
                     .shadow(16.dp, CircleShape)
-            )
-            // 旋转的专辑封面
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(coverData)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "专辑封面",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .background(
-                        brush = Brush.sweepGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                            )
-                        )
+            ) {
+                if (hasCover) {
+                    val coverData = getAlbumArtUri(track, coverCache)
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(coverData)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "专辑封面",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
+                            .graphicsLayer {
+                                rotationZ = rotation.value
+                                shadowElevation = 8f
+                            }
                     )
-                    .graphicsLayer {
-                        rotationZ = rotation.value
-                        shadowElevation = 8f
-                    },
-                placeholder = painterResource(R.drawable.ic_audio_track),
-                error = painterResource(R.drawable.ic_audio_track)
-            )
+                }
+            }
         } else {
-            // 空白状态占位
+            // 空白状态：淡紫色圆形 + 音乐图标
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
-                    .background(
-                        Brush.sweepGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primaryContainer,
-                                MaterialTheme.colorScheme.secondaryContainer,
-                                MaterialTheme.colorScheme.tertiaryContainer
-                            )
-                        )
-                    )
+                    .background(Color(0xFFE1BEE7)) // 淡紫色（替换了原 sweepGradient 多边形渐变）
                     .shadow(16.dp, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Outlined.MusicNote,
+                    painterResource(R.drawable.ic_music_off),
                     contentDescription = null,
                     modifier = Modifier.size(64.dp),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
@@ -706,7 +687,7 @@ fun PlaybackControls(
 
         // 上一首
         ControlButton(
-            icon = Icons.Filled.SkipPrevious,
+            icon = painterResource(R.drawable.ic_skip_previous),
             onClick = onPrevious,
             size = 48.dp
         )
@@ -721,7 +702,7 @@ fun PlaybackControls(
 
         // 下一首
         ControlButton(
-            icon = Icons.Filled.SkipNext,
+            icon = painterResource(R.drawable.ic_skip_next),
             onClick = onNext,
             size = 48.dp
         )
@@ -782,7 +763,7 @@ fun PlayPauseButton(
             )
         } else {
             Icon(
-                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                painter = if (isPlaying) painterResource(R.drawable.ic_pause) else painterResource(R.drawable.ic_play),
                 contentDescription = if (isPlaying) "暂停" else "播放",
                 modifier = Modifier.size(40.dp),
                 tint = MaterialTheme.colorScheme.onPrimary
@@ -795,9 +776,9 @@ fun PlayModeButton(
     onClick: () -> Unit
 ) {
     val icon = when (playMode) {
-        PlayMode.SEQUENTIAL -> Icons.Filled.Repeat
-        PlayMode.SHUFFLE -> Icons.Filled.Shuffle
-        PlayMode.SINGLE_LOOP -> Icons.Filled.RepeatOne
+        PlayMode.SEQUENTIAL -> painterResource(R.drawable.ic_shuffle_disabled)
+        PlayMode.SHUFFLE -> painterResource(R.drawable.ic_shuffle)
+        PlayMode.SINGLE_LOOP -> painterResource(R.drawable.ic_repeat_one)
     }
 
     val label = when (playMode) {
@@ -821,7 +802,7 @@ fun PlayModeButton(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = icon,
+                painter = icon,
                 contentDescription = label,
                 modifier = Modifier.size(24.dp),
                 tint = if (isActive) activeColor
@@ -840,7 +821,7 @@ fun PlayModeButton(
 
 @Composable
 fun ControlButton(
-    icon: ImageVector,
+    icon: Painter,
     onClick: () -> Unit,
     size: androidx.compose.ui.unit.Dp,
     tint: Color = MaterialTheme.colorScheme.onSurface
@@ -850,7 +831,7 @@ fun ControlButton(
         modifier = Modifier.size(size)
     ) {
         Icon(
-            imageVector = icon,
+            painter = icon,
             contentDescription = null,
             modifier = Modifier.size(size - 16.dp),
             tint = tint
@@ -872,12 +853,12 @@ fun SearchBar(
         modifier = modifier.fillMaxWidth(),
         placeholder = { Text("搜索本地音乐...") },
         leadingIcon = {
-            Icon(Icons.Outlined.Search, contentDescription = null)
+            Icon(painterResource(R.drawable.ic_search_off), contentDescription = null)
         },
         trailingIcon = {
             if (query.isNotEmpty()) {
                 IconButton(onClick = { onQueryChange("") }) {
-                    Icon(Icons.Outlined.Clear, contentDescription = "清除")
+                    Icon(painterResource(R.drawable.ic_clear), contentDescription = "清除")
                 }
             }
         },
@@ -971,7 +952,7 @@ fun EmptyQueuePlaceholder(isEmpty: Boolean, isNoResult: Boolean) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
-                imageVector = if (isEmpty) Icons.Outlined.QueueMusic else Icons.Outlined.SearchOff,
+                painter = if (isEmpty) painterResource(R.drawable.ic_playlist_music) else painterResource(R.drawable.ic_search_off),
                 contentDescription = null,
                 modifier = Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -1035,7 +1016,7 @@ fun QueueItem(
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Icon(
-                    Icons.Filled.Delete,
+                    painter = painterResource(R.drawable.ic_delete),
                     contentDescription = "删除",
                     tint = MaterialTheme.colorScheme.onErrorContainer
                 )
@@ -1076,20 +1057,28 @@ fun QueueItem(
                     Spacer(modifier = Modifier.width(12.dp))
 
                     // 封面缩略图
-                    val coverData = getAlbumArtUri(track, coverCache)
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(coverData)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        placeholder = painterResource(R.drawable.ic_audio_track),
-                        error = painterResource(R.drawable.ic_audio_track)
-                    )
+                    val hasCover = coverCache.containsKey(track.id) || track.albumId > 0L
+                    if (hasCover) {
+                        val coverData = getAlbumArtUri(track, coverCache)
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(coverData)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFE1BEE7))
+                        )
+                    }
 
                     Spacer(modifier = Modifier.width(12.dp))
 
@@ -1109,7 +1098,7 @@ fun QueueItem(
                             if (isCurrentTrack) {
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Icon(
-                                    Icons.Filled.MusicNote,
+                                    painterResource(R.drawable.ic_music_note),
                                     contentDescription = "正在播放",
                                     modifier = Modifier.size(16.dp),
                                     tint = MaterialTheme.colorScheme.primary
@@ -1210,7 +1199,7 @@ fun LocalMusicBottomSheet(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            Icons.Outlined.MusicOff,
+                            painterResource(R.drawable.ic_music_off),
                             contentDescription = null,
                             modifier = Modifier.size(64.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -1273,7 +1262,7 @@ fun LocalMusicBottomSheet(
                                 }
 
                                 Icon(
-                                    Icons.Filled.Add,
+                                    painter = painterResource(R.drawable.ic_add),
                                     contentDescription = "添加",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
@@ -1309,17 +1298,20 @@ fun TrackDetailDialog(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(getAlbumArtUri(track, coverCache))
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(200.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                )
+                val hasCover = coverCache.containsKey(track.id) || track.albumId > 0L
+                if (hasCover) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(getAlbumArtUri(track, coverCache))
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(200.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -1372,7 +1364,7 @@ fun formatDuration(durationMs: Long): String {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
-fun getAlbumArtUri(track: Track, coverCache: Map<Long, String>): Any {
+fun getAlbumArtUri(track: Track, coverCache: Map<Long, String>): Any? {
     // MediaStore 方式：直接使用 album art content URI（Coil 可直接加载）
     if (track.albumId > 0L) {
         return android.net.Uri.parse(
@@ -1380,5 +1372,5 @@ fun getAlbumArtUri(track: Track, coverCache: Map<Long, String>): Any {
         )
     }
     // 文件系统方式：检查 coverCache 中的本地提取封面
-    return coverCache[track.id] ?: R.drawable.ic_audio_track
+    return coverCache[track.id] // null 表示无封面
 }

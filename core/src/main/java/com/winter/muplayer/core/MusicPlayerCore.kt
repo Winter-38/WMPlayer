@@ -70,7 +70,8 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
                 _playerState.update {
                     it.copy(
                         state = engineState.state,
-                        error = engineState.error
+                        error = engineState.error,
+                        currentTrack = engineState.currentTrack
                     )
                 }
             }
@@ -124,18 +125,22 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
         }
     }
 
+    private suspend fun prepareTrackInternal(track: Track) {
+        _playerState.update {
+            it.copy(
+                currentTrack = track,
+                progress = 0L,
+                duration = track.duration
+            )
+        }
+        engine.prepare(track)
+        progressTracker.start()
+    }
+
     fun prepareTrack(track: Track) {
         scope.launch {
             if (isReleased) return@launch
-            _playerState.update {
-                it.copy(
-                    currentTrack = track,
-                    progress = 0L,
-                    duration = track.duration
-                )
-            }
-            engine.prepare(track)
-            progressTracker.start()
+            prepareTrackInternal(track)
         }
     }
 
@@ -144,7 +149,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
         scope.launch {
             val currentTrack = queueManager.getCurrentTrack() ?: return@launch
             if (!engine.isReady()) {
-                prepareTrack(currentTrack)
+                prepareTrackInternal(currentTrack)
             }
             engine.play()
         }
@@ -156,7 +161,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
             queueManager.setCurrentIndex(index)
             val track = queueManager.getCurrentTrack()
             if (track != null) {
-                prepareTrack(track)
+                prepareTrackInternal(track)
                 engine.play()
             }
         }
@@ -183,7 +188,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
             progressTracker.stop()
             val nextTrack = queueManager.getNextTrack()
             if (nextTrack != null) {
-                prepareTrack(nextTrack)
+                prepareTrackInternal(nextTrack)
                 engine.play()
             } else {
                 engine.stop()
@@ -205,7 +210,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
             progressTracker.stop()
             val prevTrack = queueManager.getPreviousTrack()
             if (prevTrack != null) {
-                prepareTrack(prevTrack)
+                prepareTrackInternal(prevTrack)
                 engine.play()
             } else {
                 engine.seekTo(0L)
@@ -318,10 +323,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
             PlayMode.SINGLE_LOOP -> {
                 val track = queueManager.getCurrentTrack()
                 if (track != null) {
-                    _playerState.update {
-                        it.copy(state = PlayerState.LOADING)
-                    }
-                    engine.prepare(track)
+                    prepareTrackInternal(track)
                     engine.play()
                 } else {
                     _playerState.update {
@@ -335,10 +337,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
             else -> {
                 val nextTrack = queueManager.getNextTrack()
                 if (nextTrack != null) {
-                    _playerState.update {
-                        it.copy(state = PlayerState.LOADING)
-                    }
-                    engine.prepare(nextTrack)
+                    prepareTrackInternal(nextTrack)
                     engine.play()
                 } else {
                     progressTracker.stop()
