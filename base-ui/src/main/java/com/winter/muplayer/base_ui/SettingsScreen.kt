@@ -19,7 +19,9 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
     ) {
         // 顶部的返回栏
         Row(

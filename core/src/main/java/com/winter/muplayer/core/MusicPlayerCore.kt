@@ -297,6 +297,27 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
         }
     }
 
+    /**
+     * 添加一首歌到队列并立即播放。
+     * 即使当前正在播放也会切到这首歌。
+     */
+    fun playTrack(track: Track) {
+        if (isReleased) return
+        scope.launch {
+            engineMutex.withLock {
+                queueManager.addTrack(track)
+                // 栈插入后新歌在 index=0
+                queueManager.setCurrentIndex(0)
+                val currentTrack = queueManager.getCurrentTrack()
+                if (currentTrack != null) {
+                    progressTracker.stop()
+                    prepareTrackInternal(currentTrack)
+                    engine.play()
+                }
+            }
+        }
+    }
+
     /** 一次加一堆歌～ */
     fun addTracks(tracks: List<Track>) {
         if (isReleased) return

@@ -92,7 +92,9 @@ fun PluginManagerScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
     ) {
         // 顶部栏：标题 + 操作按钮
         Row(

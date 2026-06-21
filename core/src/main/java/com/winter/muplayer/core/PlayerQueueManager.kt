@@ -59,33 +59,41 @@ class PlayQueueManager {
         playMode
     }
 
-    /** 把一首歌加到队列末尾～如果队列本来是空的，它会自动变成当前曲目 */
+    /**
+     * 把一首歌插入队列头部（堆栈模式：先进后播）。
+     * 如果队列本来是空的，它会自动变成当前曲目。
+     */
     suspend fun addTrack(track: Track) = mutex.withLock {
         val entry = QueueEntry(uid = uidCounter++, track = track)
-        val newIndex = _queue.value.size
-        _queue.update { currentList -> currentList + entry }
-        val prevIdx = _currentIndex.value
-        if (_currentIndex.value == -1 && _queue.value.isNotEmpty()) {
+        val wasEmpty = _queue.value.isEmpty()
+        _queue.update { mutableListOf(entry).also { it.addAll(it.size, _queue.value) } }
+        if (wasEmpty) {
             _currentIndex.value = 0
+        } else if (_currentIndex.value >= 0) {
+            _currentIndex.value = _currentIndex.value + 1
         }
         if (playMode == PlayMode.SHUFFLE) {
-            insertIntoShuffleIndices(newIndex)
+            insertIntoShuffleIndices(0)
         }
     }
 
-    /** 批量加歌！一次丢一堆进去～ */
+    /**
+     * 批量插入到队列头部（堆栈模式）。
+     * 列表中第一首歌在栈最底部，最后一首在最顶部（最先播放）。
+     */
     suspend fun addTracks(tracks: List<Track>) = mutex.withLock {
-        val entries = tracks.map { track ->
+        val entries = tracks.reversed().map { track ->
             QueueEntry(uid = uidCounter++, track = track)
         }
-        val startIndex = _queue.value.size
-        _queue.update { currentList -> currentList + entries }
-        val prevIdx = _currentIndex.value
-        if (_currentIndex.value == -1 && _queue.value.isNotEmpty()) {
+        val wasEmpty = _queue.value.isEmpty()
+        _queue.update { entries + it }
+        if (wasEmpty) {
             _currentIndex.value = 0
+        } else if (_currentIndex.value >= 0) {
+            _currentIndex.value = _currentIndex.value + entries.size
         }
         if (playMode == PlayMode.SHUFFLE) {
-            for (i in startIndex until _queue.value.size) {
+            for (i in 0 until entries.size) {
                 insertIntoShuffleIndices(i)
             }
         }
