@@ -1,15 +1,15 @@
 package com.winter.muplayer.core
 
 import android.content.Context
-import android.os.Bundle
 import com.winter.muplayer.engine.ExoPlayerEngine
 import com.winter.muplayer.engine.PlayerEngine
 import com.winter.muplayer.model.PlayMode
 import com.winter.muplayer.model.PlayerState
 import com.winter.muplayer.model.PlayerStateData
 import com.winter.muplayer.model.Track
-import com.winter.muplayer.plugin.PluginHost
-import com.winter.muplayer.plugin_api.PluginContract
+import com.winter.muplayer.plugin.ShadowPluginHost
+import com.winter.muplayer.plugin_runtime.IPlayerHost
+import com.winter.muplayer.core.AppLogger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.json.JSONObject
 
 /**
  * 播放器的「大脑」—— 所有核心逻辑都在这儿啦！
@@ -30,7 +29,7 @@ import org.json.JSONObject
  *
  * 用完了记得调 [close] 或 [release] 释放资源哦，不然会漏的！
  */
-class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
+class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPlayerHost {
 
     companion object {
         @Volatile
@@ -58,29 +57,17 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     /** 播放列表管理器～管着用户创建的那些歌单 */
     val playlistManager = PlaylistManager(context)
 
-    /** 真正的播放引擎，干活的是它 */
+    /** 这是播放引擎，干活的是它 */
     private val engine: PlayerEngine = ExoPlayerEngine(context)
 
     /** 进度追踪器，每隔一会儿就问引擎「播到哪了」 */
     private val progressTracker = ProgressTracker(scope, engine)
 
-    /** 插件宿主，跟外部插件聊天就靠它了 */
-    val pluginHost = PluginHost(context) { action, params ->
-        scope.launch {
-            when (action) {
-                PluginContract.ACTION_PLAY -> play()
-                PluginContract.ACTION_PAUSE -> pause()
-                PluginContract.ACTION_NEXT -> playNext()
-                PluginContract.ACTION_PREV -> playPrevious()
-                PluginContract.ACTION_STOP -> stop()
-                PluginContract.ACTION_SEEK ->
-                    seekTo(params.getLong(PluginContract.KEY_SEEK_POSITION, 0L))
-            }
-        }
-    }
+    /** Shadow 插件宿主——基于 DexClassLoader 的动态插件加载 */
+    val shadowPluginHost = ShadowPluginHost(context, this)
 
     private val _playerState = MutableStateFlow(PlayerStateData())
-    val playerState: StateFlow<PlayerStateData> = _playerState.asStateFlow()
+    override val playerState: StateFlow<PlayerStateData> = _playerState.asStateFlow()
 
     init {
         // 监听歌曲播完事件，自动切到下一首
@@ -115,39 +102,11 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
             }
         }
 
-        // 启动时扫描并加载已安装的插件
-        pluginHost.loadAll()
+        // 启动时加载所有已安装的插件（Shadow 架构）
+        shadowPluginHost.loadAll()
 
-        // 播放器状态有变化就推送给所有插件
-        scope.launch {
-            var lastTrackId = -1L
-            _playerState.collect { state ->
-                pluginHost.broadcast(
-                    PluginContract.METHOD_ON_STATE_CHANGE,
-                    playerStateToBundle(state)
-                )
-                val currentId = state.currentTrack?.id ?: -1L
-                if (currentId != lastTrackId) {
-                    lastTrackId = currentId
-                    state.currentTrack?.let { track ->
-                        pluginHost.broadcast(
-                            PluginContract.METHOD_ON_TRACK_CHANGE,
-                            trackToBundle(track)
-                        )
-                    }
-                }
-            }
-        }
-
-        // 播放模式变了也告诉插件一声
-        scope.launch {
-            _playMode.collect { mode ->
-                pluginHost.broadcast(
-                    PluginContract.METHOD_ON_PLAY_MODE_CHANGE,
-                    Bundle().apply { putString(PluginContract.KEY_PLAY_MODE, mode.name) }
-                )
-            }
-        }
+        // Shadow 架构下插件通过 IPlayerHost 直接读取状态，
+        // 无需再广播状态变化——插件自己 collect StateFlow 即可。
     }
 
     /**
@@ -176,7 +135,8 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     }
 
     /** 播放！如果还没准备好会自动先准备 */
-    fun play() {
+    override fun play() {
+        AppLogger.i("Player", "play")
         if (isReleased) return
         scope.launch {
             engineMutex.withLock {
@@ -205,7 +165,8 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     }
 
     /** 暂停～先歇一会儿 */
-    fun pause() {
+    override fun pause() {
+        AppLogger.i("Player", "pause")
         if (isReleased) return
         scope.launch {
             engineMutex.withLock {
@@ -215,7 +176,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     }
 
     /** 完全停下来 */
-    fun stop() {
+    override fun stop() {
         if (isReleased) return
         scope.launch {
             engineMutex.withLock {
@@ -226,7 +187,8 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     }
 
     /** 下一首～会根据当前的播放模式算出下一首是什么 */
-    fun playNext() {
+    override fun playNext() {
+        AppLogger.i("Player", "playNext")
         if (isReleased) return
         scope.launch {
             engineMutex.withLock {
@@ -249,7 +211,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     }
 
     /** 上一首～逻辑和下一首差不多 */
-    fun playPrevious() {
+    override fun playPrevious() {
         if (isReleased) return
         scope.launch {
             engineMutex.withLock {
@@ -268,7 +230,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     }
 
     /** 跳到指定的毫秒位置～ */
-    fun seekTo(positionMs: Long) {
+    override fun seekTo(positionMs: Long) {
         if (isReleased) return
         scope.launch {
             engineMutex.withLock {
@@ -278,7 +240,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     }
 
     private val _playMode = MutableStateFlow(PlayMode.SEQUENTIAL)
-    val playMode: StateFlow<PlayMode> = _playMode.asStateFlow()
+    override val playMode: StateFlow<PlayMode> = _playMode.asStateFlow()
 
     /** 切换播放模式～会同步更新队列管理器的模式 */
     fun setPlayMode(mode: PlayMode) {
@@ -290,7 +252,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     }
 
     /** 往播放队列里加一首歌～ */
-    fun addTrack(track: Track) {
+    override fun addTrack(track: Track) {
         if (isReleased) return
         scope.launch {
             queueManager.addTrack(track)
@@ -301,7 +263,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
      * 添加一首歌到队列并立即播放。
      * 即使当前正在播放也会切到这首歌。
      */
-    fun playTrack(track: Track) {
+    override fun playTrack(track: Track) {
         if (isReleased) return
         scope.launch {
             engineMutex.withLock {
@@ -319,7 +281,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     }
 
     /** 一次加一堆歌～ */
-    fun addTracks(tracks: List<Track>) {
+    override fun addTracks(tracks: List<Track>) {
         if (isReleased) return
         scope.launch {
             queueManager.addTracks(tracks)
@@ -360,51 +322,88 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
         runBlocking {
             engineMutex.withLock {
                 progressTracker.stop()
-                pluginHost.unloadAll()
+                shadowPluginHost.unloadAll()
                 engine.release()
             }
         }
         scope.cancel()
+        shadowPluginHost.release()
         synchronized(Companion) {
             instance = null
         }
     }
 
-    // ==================== 插件事件序列化 ====================
-
-    /** 把播放器状态打包成 Bundle，插件那边看得懂 */
-    private fun playerStateToBundle(state: PlayerStateData): Bundle {
-        val json = JSONObject()
-        json.put("state", state.state.name)
-        json.put("progress", state.progress)
-        json.put("duration", state.duration)
-        state.currentTrack?.let { track ->
-            json.put("track", trackToJson(track))
-        }
-        return Bundle().apply {
-            putString(PluginContract.KEY_STATE_JSON, json.toString())
+    /**
+     * 智能播放：播放一首歌，并根据队列状态决定是否批量添加。
+     *
+     * - 队列为空 → 将 [batch] 中的所有歌曲加入队列，播放 [track]
+     * - 队列非空 → 仅添加 [track] 单曲并播放
+     */
+    fun playTrackSmart(track: Track, batch: List<Track>) {
+        AppLogger.i("Player", "playTrackSmart: ${track.title} (batch=${batch.size})")
+        if (isReleased) return
+        scope.launch {
+            engineMutex.withLock {
+                if (queueManager.isEmpty()) {
+                    // 队列为空：先添加所有 batch 歌曲，再定位到目标曲目
+                    queueManager.addTracks(batch)
+                    val targetIndex = queueManager.queue.value.indexOfFirst { it.track.id == track.id }
+                    if (targetIndex >= 0) {
+                        queueManager.setCurrentIndex(targetIndex)
+                        val currentTrack = queueManager.getCurrentTrack()
+                        if (currentTrack != null) {
+                            progressTracker.stop()
+                            prepareTrackInternal(currentTrack)
+                            engine.play()
+                        }
+                    }
+                } else {
+                    // 队列非空：只加单曲切到该曲
+                    queueManager.addTrack(track)
+                    queueManager.setCurrentIndex(0)
+                    val currentTrack = queueManager.getCurrentTrack()
+                    if (currentTrack != null) {
+                        progressTracker.stop()
+                        prepareTrackInternal(currentTrack)
+                        engine.play()
+                    }
+                }
+            }
         }
     }
 
-    /** 歌曲信息打包成 Bundle */
-    private fun trackToBundle(track: Track): Bundle {
-        return Bundle().apply {
-            putString(PluginContract.KEY_TRACK_JSON, trackToJson(track).toString())
+    // ==================== IPlayerHost 桥接 ====================
+
+    /** 切换播放模式（String → PlayMode 桥接，供插件调用） */
+    override fun setPlayMode(mode: String) {
+        val playMode = try {
+            com.winter.muplayer.model.PlayMode.valueOf(mode)
+        } catch (_: IllegalArgumentException) {
+            com.winter.muplayer.model.PlayMode.SEQUENTIAL
         }
+        setPlayMode(playMode)
     }
 
-    /** 歌曲信息转成 JSON */
-    private fun trackToJson(track: Track): JSONObject {
-        return JSONObject().apply {
-            put("id", track.id)
-            put("title", track.title)
-            put("artist", track.artist)
-            put("album", track.album)
-            put("duration", track.duration)
-            put("uri", track.uri)
-            put("albumId", track.albumId)
-        }
+    /** 获取当前队列（供插件查询） */
+    override fun getQueue(): List<Track> {
+        return queueManager.queue.value.map { it.track }
     }
+
+    /** 当前曲目（IPlayerHost 快速访问） */
+    override val currentTrack: Track?
+        get() = _playerState.value.currentTrack
+
+    /** 总时长毫秒 */
+    override val duration: Long
+        get() = _playerState.value.duration
+
+    /** 当前进度毫秒 */
+    override val progress: Long
+        get() = _playerState.value.progress
+
+    /** 是否正在播放 */
+    override val isPlaying: Boolean
+        get() = _playerState.value.state == com.winter.muplayer.model.PlayerState.PLAYING
 
     /** 一首歌唱完了——根据播放模式决定下一步干啥 */
     private suspend fun handleTrackCompletion() {

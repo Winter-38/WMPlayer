@@ -50,7 +50,6 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(project(":model"))
     implementation(project(":base-ui"))
-    implementation(project(":plugin-api"))
     implementation(project(":core"))
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

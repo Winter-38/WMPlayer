@@ -24,7 +24,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "WinterMuPlayer"
 include(":app")
-include(":plugin-api")
 include(":base-ui")
 include(":model")
 include(":core")
+include(":plugin")   // 合并后的 Shadow 插件框架（Runtime + Loader + Manager）

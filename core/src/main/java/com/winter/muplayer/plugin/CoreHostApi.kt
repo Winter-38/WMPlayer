@@ -1,8 +1,11 @@
 package com.winter.muplayer.plugin
 
 /**
- * 这个文件……嗯，也是过去式。
- *
- * CoreHostApi 以前是给插件提供宿主 API 的，
- * 现在插件都通过 ContentProvider 聊天了，所以这个就光荣退休啦～
+ * @deprecated 宿主 API 已通过 [com.winter.muplayer.plugin_runtime.IPlayerHost] 接口暴露（Shadow 架构）。
+ * 此文件仅保留用于编译兼容，将在下个主版本中移除。
  */
+@Deprecated(
+    message = "Use com.winter.muplayer.plugin_runtime.IPlayerHost instead (Shadow architecture)",
+    replaceWith = ReplaceWith("com.winter.muplayer.plugin_runtime.IPlayerHost")
+)
+class CoreHostApi

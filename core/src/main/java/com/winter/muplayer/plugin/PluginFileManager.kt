@@ -1,8 +1,11 @@
 package com.winter.muplayer.plugin
 
 /**
- * 这个文件还是过去式～（叹气）
- *
- * 以前插件是搞文件管理的，现在插件都独立 APK 安装了，
- * 不再需要这玩意儿了，留个空壳子当纪念吧！
+ * @deprecated 文件管理功能已不再需要。插件 APK 现由 [com.winter.muplayer.plugin_manager.PluginManager] 管理。
+ * 此文件仅保留用于编译兼容，将在下个主版本中移除。
  */
+@Deprecated(
+    message = "No longer needed; plugin APKs are managed by PluginManager (Shadow architecture)",
+    replaceWith = ReplaceWith("com.winter.muplayer.plugin_manager.PluginManager")
+)
+class PluginFileManager

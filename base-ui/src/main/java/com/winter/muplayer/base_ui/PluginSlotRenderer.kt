@@ -18,14 +18,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.winter.muplayer.plugin_api.PluginContract
-import com.winter.muplayer.plugin_api.SlotWidget
+import com.winter.muplayer.plugin_runtime.PluginWidget
+import com.winter.muplayer.plugin_runtime.WidgetType
 
 /**
- * 渲染插件塞过来的 UI 小部件～
- * 插件可以用这个机制在播放器界面上嵌入自己的内容。
+ * 渲染插件塞过来的 UI 小部件～（Shadow 架构版）
  *
- * @param slotName  Slot 的名字，比如 "below_controls"（控制按钮下面）
+ * 使用 [PluginWidget] 数据类替代旧架构的 [com.winter.muplayer.plugin_api.SlotWidget]。
+ * Widget 类型定义在 plugin-runtime 模块中，宿主和插件共享同一个数据契约。
+ *
+ * @param slotName  Slot 的名字，如 "below_controls"（控制按钮下面）
  * @param widgets   这个 Slot 里要展示的小部件列表
  * @param background  要不要在外面包一层 Card 背景呀？
  * @param onWidgetAction  插件按钮被点击的时候会调这个回调，告诉你 action 是啥
@@ -33,7 +35,7 @@ import com.winter.muplayer.plugin_api.SlotWidget
 @Composable
 fun PluginSlot(
     slotName: String,
-    widgets: List<SlotWidget>,
+    widgets: List<PluginWidget>,
     background: Boolean = true,
     onWidgetAction: (String) -> Unit = {}
 ) {
@@ -74,7 +76,7 @@ fun PluginSlot(
  * 根据 type 不同，可以渲染成文字、跑马灯、图片或者按钮。
  */
 @Composable
-private fun SlotWidgetItem(widget: SlotWidget, onAction: (String) -> Unit = {}) {
+private fun SlotWidgetItem(widget: PluginWidget, onAction: (String) -> Unit = {}) {
     val color = try {
         Color(android.graphics.Color.parseColor(widget.color))
     } catch (_: Exception) {
@@ -88,7 +90,7 @@ private fun SlotWidgetItem(widget: SlotWidget, onAction: (String) -> Unit = {}) 
     }
 
     when (widget.type) {
-        PluginContract.WIDGET_TEXT -> {
+        WidgetType.TEXT -> {
             val size = when (widget.size) {
                 "small" -> 12.sp
                 "large" -> 18.sp
@@ -108,7 +110,7 @@ private fun SlotWidgetItem(widget: SlotWidget, onAction: (String) -> Unit = {}) 
             )
         }
 
-        PluginContract.WIDGET_MARQUEE -> {
+        WidgetType.MARQUEE_TEXT -> {
             MarqueeText(
                 text = widget.content,
                 style = MaterialTheme.typography.bodyMedium.copy(
@@ -119,7 +121,7 @@ private fun SlotWidgetItem(widget: SlotWidget, onAction: (String) -> Unit = {}) 
             )
         }
 
-        PluginContract.WIDGET_IMAGE -> {
+        WidgetType.IMAGE -> {
             if (widget.url.isNotBlank()) {
                 Box(
                     modifier = Modifier
@@ -141,7 +143,7 @@ private fun SlotWidgetItem(widget: SlotWidget, onAction: (String) -> Unit = {}) 
             }
         }
 
-        PluginContract.WIDGET_BUTTON -> {
+        WidgetType.BUTTON -> {
             val buttonAlign: Alignment.Horizontal = when (widget.align) {
                 "start" -> Alignment.Start
                 "end" -> Alignment.End

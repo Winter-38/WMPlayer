@@ -1,31 +1,70 @@
 package com.winter.muplayer.plugin
 
-import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import com.winter.muplayer.model.PlayMode
-import com.winter.muplayer.model.PlayerState
-import com.winter.muplayer.model.PlayerStateData
 import com.winter.muplayer.model.Track
-import com.winter.muplayer.plugin_api.PluginContract
-import com.winter.muplayer.plugin_api.SlotWidget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+// ==================== 常量内联（原 plugin-api 模块已废弃） ====================
+private const val TAG = "WinterMuPlugin"
+private const val AUTHORITY_SUFFIX = ".musicplugin"
+private const val KEY_PLUGIN_ID = "plugin_id"
+private const val KEY_PLUGIN_NAME = "plugin_name"
+private const val KEY_PLUGIN_TYPE = "plugin_type"
+private const val KEY_PLUGIN_VERSION = "plugin_version"
+private const val KEY_PERMISSIONS = "permissions"
+private const val METHOD_GET_METADATA = "get_metadata"
+private const val METHOD_ON_LOAD = "on_load"
+private const val METHOD_ON_UNLOAD = "on_unload"
+private const val METHOD_GET_SLOT = "get_slot"
+private const val KEY_SLOT_NAME = "slot"
+private const val KEY_WIDGETS_JSON = "widgets_json"
+private const val WF_TYPE = "type"
+private const val WF_CONTENT = "content"
+private const val WF_ALIGN = "align"
+private const val WF_SIZE = "size"
+private const val WF_COLOR = "color"
+private const val WF_URL = "url"
+private const val WF_ACTION = "action"
+private const val KEY_REQUEST_ACTION = "request_action"
+private const val PERMISSION_PLAYBACK_CONTROL = "playback_control"
+private const val KEY_STATE_JSON = "state_json"
+private const val KEY_TRACK_JSON = "track_json"
+private const val KEY_PLAY_MODE = "play_mode"
+private const val METHOD_ON_STATE_CHANGE = "on_state_change"
+private const val METHOD_ON_TRACK_CHANGE = "on_track_change"
+private const val METHOD_ON_PLAY_MODE_CHANGE = "on_play_mode_change"
+
 /**
- * 插件宿主核心 — 通过 ContentProvider 发现和管理插件。
+ * 插件 UI 小卡片（内联版，原 plugin-api 模块已废弃）。
+ */
+data class SlotWidget(
+    val type: String,
+    val content: String,
+    val align: String = "center",
+    val size: String = "medium",
+    val color: String = "#FFFFFF",
+    val url: String = "",
+    val action: String = ""
+)
+
+/**
+ * @deprecated 插件系统已重写为 Shadow 架构。
+ * 请使用 [ShadowPluginHost] 替代。
  *
- * ## 职责
- * 1. 扫描已安装的 APK，发现 authority 以 `.musicplugin` 结尾的 ContentProvider
- * 2. 调用 `get_metadata` 获取插件信息并校验权限声明
- * 3. 向所有已加载插件广播播放器事件
- * 4. 处理插件通过返回值发起的控制请求（play/pause/next 等）
+ * 旧的 ContentProvider IPC 方案已被 DexClassLoader 动态加载方案取代。
+ * 此文件仅保留用于编译兼容，将在下个主版本中移除。
+ *
+ * ## 迁移指南
+ * - `discover()` → [ShadowPluginHost.loadAll]
+ * - `broadcast()` → 插件通过 [com.winter.muplayer.plugin_runtime.IPlayerHost] 直接访问
+ * - `refreshSlots()` → [ShadowPluginHost.getSlotViews]
  */
 class PluginHost(
     private val context: Context,
@@ -57,12 +96,10 @@ class PluginHost(
         val result = mutableListOf<PluginInfo>()
         val pm = context.packageManager
 
-        // 方案：遍历已安装 Package 的 Provider
-        // 兼容 API 30+ 的包可见性限制
         val packages = try {
             pm.getInstalledPackages(PackageManager.GET_PROVIDERS)
         } catch (e: Exception) {
-            Log.w(PluginContract.TAG, "getInstalledPackages failed", e)
+            Log.w(TAG, "getInstalledPackages failed", e)
             return result
         }
 
@@ -70,29 +107,27 @@ class PluginHost(
             val providers = pkg.providers ?: continue
             for (provider in providers) {
                 val authority = provider.authority ?: continue
-                if (!authority.endsWith(PluginContract.AUTHORITY_SUFFIX)) continue
+                if (!authority.endsWith(AUTHORITY_SUFFIX)) continue
 
                 val meta = queryPluginMetadata(provider.authority)
                 if (meta == null) {
-                    Log.w(PluginContract.TAG,
-                        "Plugin provider $authority failed get_metadata, skip")
+                    Log.w(TAG, "Plugin provider $authority failed get_metadata, skip")
                     continue
                 }
 
                 val plugin = PluginInfo(
-                    id = meta.getString(PluginContract.KEY_PLUGIN_ID, ""),
-                    name = meta.getString(PluginContract.KEY_PLUGIN_NAME, "未知"),
-                    type = meta.getString(PluginContract.KEY_PLUGIN_TYPE, "unknown"),
-                    version = meta.getString(PluginContract.KEY_PLUGIN_VERSION, "1.0"),
+                    id = meta.getString(KEY_PLUGIN_ID, ""),
+                    name = meta.getString(KEY_PLUGIN_NAME, "未知"),
+                    type = meta.getString(KEY_PLUGIN_TYPE, "unknown"),
+                    version = meta.getString(KEY_PLUGIN_VERSION, "1.0"),
                     packageName = provider.packageName,
                     authority = authority,
-                    permissions = meta.getStringArrayList(PluginContract.KEY_PERMISSIONS)
+                    permissions = meta.getStringArrayList(KEY_PERMISSIONS)
                         ?.toSet() ?: emptySet()
                 )
 
                 if (plugin.id.isBlank()) {
-                    Log.w(PluginContract.TAG,
-                        "Plugin $authority has empty id, skip")
+                    Log.w(TAG, "Plugin $authority has empty id, skip")
                     continue
                 }
 
@@ -105,37 +140,34 @@ class PluginHost(
 
     /**
      * 扫描并加载所有插件。
-     * 调用 [discover] 后对每个插件发送 [PluginContract.METHOD_ON_LOAD]。
+     * 调用 [discover] 后对每个插件发送 [METHOD_ON_LOAD]。
      */
     fun loadAll() {
         val discovered = discover()
         _plugins.clear()
         _plugins.addAll(discovered)
-        Log.i(PluginContract.TAG, "Discovered ${discovered.size} plugin(s)")
+        Log.i(TAG, "Discovered ${discovered.size} plugin(s)")
 
         for (plugin in _plugins) {
-            sendSync(plugin, PluginContract.METHOD_ON_LOAD, Bundle())
+            sendSync(plugin, METHOD_ON_LOAD, Bundle())
         }
     }
 
     /**
-     * 卸载所有插件（发送 [PluginContract.METHOD_ON_UNLOAD] 并清空列表）。
+     * 卸载所有插件（发送 [METHOD_ON_UNLOAD] 并清空列表）。
      */
     fun unloadAll() {
         for (plugin in _plugins) {
-            sendSync(plugin, PluginContract.METHOD_ON_UNLOAD, Bundle())
+            sendSync(plugin, METHOD_ON_UNLOAD, Bundle())
         }
         _plugins.clear()
-        Log.i(PluginContract.TAG, "All plugins unloaded")
+        Log.i(TAG, "All plugins unloaded")
     }
 
     // ==================== 事件广播 ====================
 
     /**
      * 向所有已加载插件广播事件（在 IO 线程执行，不阻塞调用方）。
-     *
-     * @param method  事件方法名，如 [PluginContract.METHOD_ON_STATE_CHANGE]
-     * @param extras  附加参数 Bundle
      */
     suspend fun broadcast(method: String, extras: Bundle = Bundle()) =
             withContext(Dispatchers.IO) {
@@ -144,8 +176,7 @@ class PluginHost(
                 val response = sendSync(plugin, method, extras)
                 handlePluginResponse(plugin, response)
             } catch (e: Exception) {
-                Log.w(PluginContract.TAG,
-                    "Plugin ${plugin.id} $method failed", e)
+                Log.w(TAG, "Plugin ${plugin.id} $method failed", e)
             }
         }
     }
@@ -153,17 +184,17 @@ class PluginHost(
     // ==================== UI Slot ====================
 
     /**
-     * 从所有已加载插件拉取 [PluginContract.METHOD_GET_SLOT] 内容，
+     * 从所有已加载插件拉取 [METHOD_GET_SLOT] 内容，
      * 返回按 slot 名称分组的 [SlotWidget] 列表。
      */
     suspend fun refreshSlots() = withContext(Dispatchers.IO) {
         _slotWidgets.clear()
         for (plugin in _plugins) {
             try {
-                val response = sendSync(plugin, PluginContract.METHOD_GET_SLOT, Bundle())
+                val response = sendSync(plugin, METHOD_GET_SLOT, Bundle())
                 if (response == null) continue
-                val slotName = response.getString(PluginContract.KEY_SLOT_NAME, "")
-                val widgetsJson = response.getString(PluginContract.KEY_WIDGETS_JSON, "")
+                val slotName = response.getString(KEY_SLOT_NAME, "")
+                val widgetsJson = response.getString(KEY_WIDGETS_JSON, "")
                 if (slotName.isBlank() || widgetsJson.isBlank()) continue
 
                 val array = JSONArray(widgetsJson)
@@ -171,17 +202,17 @@ class PluginHost(
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
                     list.add(SlotWidget(
-                        type = obj.optString(PluginContract.WF_TYPE, ""),
-                        content = obj.optString(PluginContract.WF_CONTENT, ""),
-                        align = obj.optString(PluginContract.WF_ALIGN, "center"),
-                        size = obj.optString(PluginContract.WF_SIZE, "medium"),
-                        color = obj.optString(PluginContract.WF_COLOR, "#FFFFFF"),
-                        url = obj.optString(PluginContract.WF_URL, ""),
-                        action = obj.optString(PluginContract.WF_ACTION, "")
+                        type = obj.optString(WF_TYPE, ""),
+                        content = obj.optString(WF_CONTENT, ""),
+                        align = obj.optString(WF_ALIGN, "center"),
+                        size = obj.optString(WF_SIZE, "medium"),
+                        color = obj.optString(WF_COLOR, "#FFFFFF"),
+                        url = obj.optString(WF_URL, ""),
+                        action = obj.optString(WF_ACTION, "")
                     ))
                 }
             } catch (e: Exception) {
-                Log.w(PluginContract.TAG, "Plugin ${plugin.id} get_slot failed", e)
+                Log.w(TAG, "Plugin ${plugin.id} get_slot failed", e)
             }
         }
     }
@@ -192,11 +223,10 @@ class PluginHost(
         return try {
             val uri = Uri.parse("content://$authority")
             context.contentResolver.call(
-                uri, PluginContract.METHOD_GET_METADATA, null, null
+                uri, METHOD_GET_METADATA, null, null
             )
         } catch (e: Exception) {
-            Log.w(PluginContract.TAG,
-                "Failed to query metadata from $authority", e)
+            Log.w(TAG, "Failed to query metadata from $authority", e)
             null
         }
     }
@@ -207,13 +237,11 @@ class PluginHost(
     }
 
     private fun handlePluginResponse(plugin: PluginInfo, response: Bundle?) {
-        val action = response?.getString(PluginContract.KEY_REQUEST_ACTION) ?: return
-        // 权限校验：只有显式声明了 playback_control 权限的插件才能控制播放
-        // 空权限或缺失权限的插件不允许控制播放（最小权限原则）
-        if (PluginContract.PERMISSION_PLAYBACK_CONTROL in plugin.permissions) {
+        val action = response?.getString(KEY_REQUEST_ACTION) ?: return
+        if (PERMISSION_PLAYBACK_CONTROL in plugin.permissions) {
             onAction?.invoke(action, response)
         } else {
-            Log.w(PluginContract.TAG,
+            Log.w(TAG,
                 "Plugin ${plugin.id} lacks playback_control permission, " +
                 "ignoring action=$action")
         }

@@ -1,40 +1,48 @@
 package com.winter.muplayer.base_ui
 
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
-import com.winter.muplayer.plugin.PluginHost
-import java.io.File
+import androidx.compose.ui.graphics.Color
+import com.winter.muplayer.base_ui.ui.theme.itemBorderColor
+import com.winter.muplayer.plugin.ShadowPluginHost
+import com.winter.muplayer.plugin_manager.PluginInstallInfo
 
 /**
- * 插件管理界面～
- * 在这里可以查看已安装的插件、安装新的 APK 插件、或者卸载不想要的。
- * 插件和宿主通过 ContentProvider 聊天，就像两个人隔着一扇门说话一样。
+ * 插件管理界面～（Shadow 架构版）
+ *
+ * 基于 [ShadowPluginHost] 进行插件的安装、卸载、加载、卸载操作。
+ * 插件以 APK 文件形式存放于应用私有目录，通过 DexClassLoader 动态加载。
+ *
+ * Shadow 架构下的变更：
+ * - 插件无需预先系统安装，通过 PluginManager.install() 存入私有目录
+ * - 加载通过 DexClassLoader 同进程加载，零 IPC 开销
+ * - 支持热插拔：安装/卸载不需要重启 App
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PluginManagerScreen(
-    pluginHost: PluginHost,
+    shadowPluginHost: ShadowPluginHost,
     onBack: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
-    // 当前扫描到的插件列表
-    var plugins by remember { mutableStateOf<List<PluginHost.PluginInfo>>(emptyList()) }
+    // 从 StateFlow 收集安装信息
+    val installedPlugins by shadowPluginHost.installedPlugins.collectAsState()
     var isLoading by remember { mutableStateOf(false) }
 
     // 文件选择器——选一个 APK 文件来安装
@@ -42,53 +50,9 @@ fun PluginManagerScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        // 先把上次装插件留下的临时文件清了，免得占地方
-        try {
-            context.cacheDir.listFiles { f -> f.name.startsWith("plugin_install_") && f.name.endsWith(".apk") }
-                ?.forEach { it.delete() }
-        } catch (_: Exception) { /* 清理失败也没关系啦 */ }
-
-        // 把 APK 复制到缓存目录，然后用 FileProvider 共享给系统安装器
-        try {
-            val inputStream = context.contentResolver.openInputStream(uri) ?: return@rememberLauncherForActivityResult
-            val tempFile = File(context.cacheDir, "plugin_install_${System.currentTimeMillis()}.apk")
-            tempFile.outputStream().use { output ->
-                inputStream.copyTo(output)
-            }
-            // 用 FileProvider 生成安全的 content:// URI，这样高版本安卓不会炸
-            val contentUri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                tempFile
-            )
-            // 调起系统安装界面
-            val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(contentUri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(installIntent)
-            Toast.makeText(context, "APK 已导出，请跟随系统提示安装", Toast.LENGTH_LONG).show()
-        } catch (e: Exception) {
-            Toast.makeText(context, "安装失败: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    // 刷新列表——重新扫描已安装的插件
-    fun refreshPlugins() {
-        isLoading = true
-        plugins = try {
-            pluginHost.discover()
-        } catch (e: Exception) {
-            Toast.makeText(context, "扫描插件失败: ${e.message}", Toast.LENGTH_SHORT).show()
-            emptyList()
-        }
-        isLoading = false
-    }
-
-    // 一进来就先扫一遍
-    LaunchedEffect(Unit) {
-        refreshPlugins()
+        // 通过 Shadow 宿主安装插件 APK
+        shadowPluginHost.install(uri, autoLoad = true)
+        Toast.makeText(context, "插件安装中...", Toast.LENGTH_SHORT).show()
     }
 
     Column(
@@ -116,9 +80,14 @@ fun PluginManagerScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // 刷新按钮
-                IconButton(onClick = { refreshPlugins() }) {
+                IconButton(onClick = {
+                    isLoading = true
+                    shadowPluginHost.refresh()
+                    isLoading = false
+                }) {
                     Icon(
-                        if (isLoading) painterResource(R.drawable.ic_hourglass_top) else painterResource(R.drawable.ic_refresh),
+                        if (isLoading) painterResource(R.drawable.ic_hourglass_top)
+                        else painterResource(R.drawable.ic_refresh),
                         contentDescription = "刷新"
                     )
                 }
@@ -137,7 +106,7 @@ fun PluginManagerScreen(
 
         // 说明小提示
         Text(
-            "插件是独立安装的 APK 应用。安装后点击刷新即可识别。",
+            "插件通过 Shadow 框架动态加载，无需系统安装。支持热插拔。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 48.dp)
@@ -153,8 +122,7 @@ fun PluginManagerScreen(
             ) {
                 CircularProgressIndicator()
             }
-        } else if (plugins.isEmpty()) {
-            // 啥也没有的占位状态
+        } else if (installedPlugins.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -172,24 +140,22 @@ fun PluginManagerScreen(
                     Text("暂无已安装的插件", style = MaterialTheme.typography.bodyLarge)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "点击「安装 APK」选择插件文件安装",
+                        "点击「安装 APK」从文件管理器选择插件文件",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         } else {
-            // 插件列表
             LazyColumn(modifier = Modifier.weight(1f)) {
-                items(items = plugins, key = { it.id }) { plugin ->
-                    PluginCard(plugin = plugin, onUninstall = {
-                        // 跳转到系统卸载界面
-                        val uninstallIntent = Intent(Intent.ACTION_DELETE).apply {
-                            data = Uri.parse("package:${plugin.packageName}")
+                items(items = installedPlugins, key = { it.metadata.id }) { info ->
+                    PluginCard(
+                        info = info,
+                        onUninstall = {
+                            shadowPluginHost.uninstall(info.metadata.id)
+                            Toast.makeText(context, "插件已卸载", Toast.LENGTH_SHORT).show()
                         }
-                        context.startActivity(uninstallIntent)
-                        Toast.makeText(context, "卸载后将在此消失", Toast.LENGTH_SHORT).show()
-                    })
+                    )
                 }
             }
         }
@@ -198,57 +164,76 @@ fun PluginManagerScreen(
 
 /**
  * 一个插件的信息卡片～
- * 显示插件的名字、类型、版本号、包名，还有它申请的权限。
+ *
+ * 展示插件的名字、类型、版本，以及卸载按钮。
  */
 @Composable
 private fun PluginCard(
-    plugin: PluginHost.PluginInfo,
+    info: PluginInstallInfo,
     onUninstall: () -> Unit
 ) {
+    val metadata = info.metadata
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .border(
+                width = 2.5.dp,
+                color = MaterialTheme.colorScheme.itemBorderColor,
+                shape = RoundedCornerShape(12.dp)
+            ),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
     ) {
         Row(
             modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 左侧图标
+            Icon(
+                painter = painterResource(R.drawable.ic_extendsion),
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.width(12.dp))
+
+            // 中间信息
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(plugin.name, style = MaterialTheme.typography.bodyLarge)
-                    Spacer(Modifier.width(8.dp))
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text(plugin.type, style = MaterialTheme.typography.labelSmall) }
-                    )
-                }
-                Spacer(Modifier.height(4.dp))
                 Text(
-                    "ID: ${plugin.id} | v${plugin.version}",
+                    text = metadata.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "${metadata.type} · v${metadata.version}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text(
-                    "包名: ${plugin.packageName}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                // 如果插件申请了权限就展示出来
-                if (plugin.permissions.isNotEmpty()) {
-                    Spacer(Modifier.height(4.dp))
+                if (metadata.permissions.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        "权限: ${plugin.permissions.joinToString(", ")}",
+                        text = "权限: ${metadata.permissions.joinToString(", ")}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
             }
+
             // 卸载按钮
-            TextButton(onClick = onUninstall) {
-                Text("卸载", color = MaterialTheme.colorScheme.error)
+            IconButton(onClick = onUninstall) {
+                Icon(
+                    painterResource(R.drawable.ic_delete),
+                    contentDescription = "卸载",
+                    tint = MaterialTheme.colorScheme.error
+                )
             }
         }
     }

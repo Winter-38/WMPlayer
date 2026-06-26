@@ -7,18 +7,21 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +35,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,19 +52,18 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.lightColorScheme
+import com.winter.muplayer.base_ui.ui.theme.AppTheme
+import com.winter.muplayer.base_ui.ui.theme.itemBorderColor
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +74,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -85,6 +89,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -95,44 +100,13 @@ import com.winter.muplayer.model.PlayMode
 import com.winter.muplayer.model.PlayerState
 import com.winter.muplayer.model.PlayerStateData
 import com.winter.muplayer.model.Track
-import com.winter.muplayer.plugin_api.SlotWidget
+import com.winter.muplayer.plugin_runtime.PluginWidget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-
-// ==================== Material Design 3 紫色主题 ====================
-
-private val PurpleColorScheme = lightColorScheme(
-    primary = Color(0xFF6750A4),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFEADDFF),
-    onPrimaryContainer = Color(0xFF21005D),
-    secondary = Color(0xFF625B71),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFE8DEF8),
-    onSecondaryContainer = Color(0xFF1D192B),
-    tertiary = Color(0xFF7D5260),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFFFD8E4),
-    onTertiaryContainer = Color(0xFF31111D),
-    error = Color(0xFFB3261E),
-    onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFF9DEDC),
-    onErrorContainer = Color(0xFF410E0B),
-    background = Color(0xFFFFFBFE),
-    onBackground = Color(0xFF1C1B1F),
-    surface = Color(0xFFFFFBFE),
-    onSurface = Color(0xFF1C1B1F),
-    surfaceVariant = Color(0xFFE7E0EC),
-    onSurfaceVariant = Color(0xFF49454F),
-    outline = Color(0xFF79747E),
-    outlineVariant = Color(0xFFCAC4D0),
-    inverseSurface = Color(0xFF313033),
-    inverseOnSurface = Color(0xFFF4EFF4),
-    inversePrimary = Color(0xFFD0BCFF),
-    surfaceTint = Color(0xFF6750A4)
-)
+import kotlin.math.roundToInt
 
 // ==================== 主界面 Activity ====================
 
@@ -155,10 +129,16 @@ class MusicUIActivity : ComponentActivity() {
         }
 
         musicPlayerCore = MusicPlayerCore.getInstance(applicationContext)
+        com.winter.muplayer.core.AppLogger.i("UI", "MusicUIActivity.onCreate")
 
         setContent {
-            MaterialTheme(colorScheme = PurpleColorScheme) {
-                MusicPlayerApp(musicPlayerCore = musicPlayerCore)
+            AppTheme {
+                androidx.compose.material3.Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    MusicPlayerApp(musicPlayerCore = musicPlayerCore)
+                }
             }
         }
     }
@@ -190,17 +170,14 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     var localMusicList by remember { mutableStateOf<List<Track>>(emptyList()) }
     var isLoadingLocal by remember { mutableStateOf(false) }
 
-    // 插件 UI Slot
-    val slotWidgets = remember { mutableStateMapOf<String, List<SlotWidget>>() }
+    // 插件 UI Slot（Shadow 架构：插件通过 IPlugin.getSlotView 提供 View，
+    // PluginWidget 用于 Compose 原生渲染——此处为兼容旧 Slot 机制保留）
+    val slotWidgets = remember { mutableStateMapOf<String, List<com.winter.muplayer.plugin_runtime.PluginWidget>>() }
 
-    // 首次加载 + 曲目切换时刷新插件 UI Slot
+    // 首次加载 + 曲目切换时刷新插件状态
     LaunchedEffect(playerState.currentTrack?.id) {
-        withContext(Dispatchers.IO) {
-            musicPlayerCore.pluginHost.discover()
-            musicPlayerCore.pluginHost.refreshSlots()
-        }
-        slotWidgets.clear()
-        slotWidgets.putAll(musicPlayerCore.pluginHost.slotWidgets)
+        // Shadow 架构下插件已通过 loadAll 加载，无需在每次切歌时重复发现。
+        // slotWidgets 目前为空，未来插件可通过 ShadowPluginHost.getSlotWidgets() 填充。
     }
 
     // 首次加载时扫描本地音乐
@@ -233,7 +210,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
             showPluginManager -> {
                 BackHandler { showPluginManager = false }
                 PluginManagerScreen(
-                    pluginHost = musicPlayerCore.pluginHost,
+                    shadowPluginHost = musicPlayerCore.shadowPluginHost,
                     onBack = { showPluginManager = false }
                 )
             }
@@ -272,7 +249,9 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                             tracks = localMusicList,
                             isLoading = isLoadingLocal,
                             coverCache = coverCache,
-                            onTrackClick = musicPlayerCore::playTrack
+                            onTrackClick = { track, contextTracks ->
+                                musicPlayerCore.playTrackSmart(track, contextTracks)
+                            }
                         )
                     }
 
@@ -476,7 +455,7 @@ fun FullPlayerPanel(
     playerState: PlayerStateData,
     playMode: PlayMode,
     coverCache: Map<Long, String>,
-    slotWidgets: List<SlotWidget>,
+    slotWidgets: List<PluginWidget>,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onNext: () -> Unit,
@@ -693,7 +672,7 @@ fun QueueSheet(
     queue: List<QueueEntry>,
     currentIndex: Int,
     coverCache: Map<Long, String>,
-    slotWidgets: List<SlotWidget>,
+    slotWidgets: List<PluginWidget>,
     onPlayTrack: (Int) -> Unit,
     onRemoveTrack: (Int) -> Unit,
     onClearQueue: () -> Unit,
@@ -1241,6 +1220,7 @@ fun PlayQueueSection(
                         onRemove = { onRemoveTrack(index) },
                         onLongPress = { onTrackLongPress(entry.track) }
                     )
+                    Spacer(Modifier.height(4.dp))
                 }
             }
         }
@@ -1249,7 +1229,7 @@ fun PlayQueueSection(
 
 // ==================== 队列中的单曲行 ====================
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun QueueTrackItem(
     track: Track,
@@ -1260,141 +1240,181 @@ fun QueueTrackItem(
     onRemove: () -> Unit,
     onLongPress: () -> Unit
 ) {
-    val swipeState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onRemove()
-                true
-            } else {
-                false
-            }
+    val scope = rememberCoroutineScope()
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var isRemoving by remember { mutableStateOf(false) }
+    var itemWidth by remember { mutableFloatStateOf(0f) }
+
+    // 退出动画：400ms 滑出 + 渐隐
+    val exitAnim by animateFloatAsState(
+        targetValue = if (isRemoving) -1f else 0f,
+        animationSpec = tween(150, easing = LinearEasing),
+        label = "exitSlide"
+    )
+    val exitAlpha by animateFloatAsState(
+        targetValue = if (isRemoving) 0f else 1f,
+        animationSpec = tween(200, easing = LinearEasing),
+        label = "exitAlpha"
+    )
+
+    LaunchedEffect(isRemoving) {
+        if (isRemoving) {
+            delay(150)
+            onRemove()
         }
-    )
+    }
 
-    val animatedBgColor by animateColorAsState(
-        targetValue = if (isCurrentTrack)
-            MaterialTheme.colorScheme.primaryContainer
-        else MaterialTheme.colorScheme.surface,
-        animationSpec = tween(300), label = "queueItemBg"
-    )
+    // 滑动时删除图标透明度
+    val bgAlpha = (offsetX / -200f).coerceIn(0f, 1f)
 
-    SwipeToDismissBox(
-        state = swipeState,
-        modifier = Modifier.padding(horizontal = 4.dp),
-        backgroundContent = {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        MaterialTheme.colorScheme.errorContainer,
-                        RoundedCornerShape(12.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp)
+            .clipToBounds()
+            .onSizeChanged { itemWidth = it.width.toFloat() }
+    ) {
+        // 卡片层
+        Card(
+            modifier = Modifier
+                .offset { IntOffset((offsetX + exitAnim * itemWidth * 0.5f).roundToInt(), 0) }
+                .graphicsLayer {
+                    alpha = exitAlpha
+                }
+                .fillMaxWidth()
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (offsetX < -150f) {
+                                // 滑过阈值 → 退出动画接手当前位置继续滑出
+                                isRemoving = true
+                            } else {
+                                // 未过阈值 → 回弹
+                                scope.launch {
+                                    animate(initialValue = offsetX, targetValue = 0f) { value, _ ->
+                                        offsetX = value
+                                    }
+                                }
+                            }
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            offsetX = (offsetX + dragAmount).coerceIn(-itemWidth * 0.5f, 0f)
+                        }
                     )
-                    .padding(horizontal = 20.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_delete),
-                    contentDescription = "删除",
-                    tint = MaterialTheme.colorScheme.onErrorContainer
+                }
+                .combinedClickable(
+                    onClick = onPlay,
+                    onLongClick = onLongPress
                 )
-            }
-        },
-        content = {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .combinedClickable(
-                        onClick = onPlay,
-                        onLongClick = onLongPress
-                    ),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = animatedBgColor
+                .border(
+                    width = 2.5.dp,
+                    color = MaterialTheme.colorScheme.itemBorderColor,
+                    shape = RoundedCornerShape(12.dp)
                 ),
-                elevation = CardDefaults.cardElevation(
-                    defaultElevation = if (isCurrentTrack) 4.dp else 0.dp
-                )
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            ),
+            elevation = CardDefaults.cardElevation(
+                defaultElevation = if (isCurrentTrack) 4.dp else 0.dp
+            )
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // 当前播放指示器竖条
+                // 当前播放指示器竖条
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(
+                            if (isCurrentTrack) MaterialTheme.colorScheme.primary
+                            else Color.Transparent
+                        )
+                )
+                Spacer(Modifier.width(12.dp))
+
+                // 封面缩略图
+                val hasCover = coverCache.containsKey(track.id) || track.albumId > 0L
+                if (hasCover) {
+                    val coverData = getAlbumArtUri(track, coverCache)
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(coverData)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                } else {
                     Box(
                         modifier = Modifier
-                            .width(4.dp)
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(
-                                if (isCurrentTrack) MaterialTheme.colorScheme.primary
-                                else Color.Transparent
-                            )
-                    )
-                    Spacer(Modifier.width(12.dp))
-
-                    // 封面缩略图
-                    val hasCover = coverCache.containsKey(track.id) || track.albumId > 0L
-                    if (hasCover) {
-                        val coverData = getAlbumArtUri(track, coverCache)
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(coverData)
-                                .crossfade(true)
-                                .build(),
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_music_note),
                             contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painterResource(R.drawable.ic_music_note),
-                                contentDescription = null,
-                                modifier = Modifier.size(24.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.width(12.dp))
-
-                    // 歌曲信息
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = track.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (isCurrentTrack) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "${track.artist} • ${track.album}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
 
-                    // 时长
+                Spacer(Modifier.width(12.dp))
+
+                // 歌曲信息
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = formatDuration(track.duration),
+                        text = track.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (isCurrentTrack) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${track.artist} • ${track.album}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // 时长
+                Text(
+                    text = formatDuration(track.duration),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 删除图标（左滑时渐显，固定在右侧）
+                Box(
+                    modifier = Modifier
+                        .width(24.dp)
+                        .height(24.dp)
+                        .graphicsLayer { alpha = bgAlpha }
+                        .padding(start = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_delete),
+                        contentDescription = "删除",
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
         }
-    )
+    }
+
 }
 
 // ==================== 曲目详情弹窗 ====================

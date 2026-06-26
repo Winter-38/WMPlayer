@@ -2,6 +2,7 @@ package com.winter.muplayer.base_ui
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.winter.muplayer.base_ui.ui.theme.itemBorderColor
 import com.winter.muplayer.model.Track
 
 // ==================== 分类枚举 ====================
@@ -42,7 +44,8 @@ fun LocalMusicBrowser(
     tracks: List<Track>,
     isLoading: Boolean,
     coverCache: Map<Long, String>,
-    onTrackClick: (Track) -> Unit = {}
+    /** @param onTrackClick (点击的曲目, 当前分类上下文曲目列表) */
+    onTrackClick: (track: Track, contextTracks: List<Track>) -> Unit = { _, _ -> }
 ) {
     var selectedCategory by remember { mutableStateOf(MusicCategory.ALL) }
     var searchQuery by remember { mutableStateOf("") }
@@ -160,17 +163,27 @@ fun LocalMusicBrowser(
                         tracks = filteredTracks,
                         isLoading = isLoading,
                         coverCache = coverCache,
-                        onTrackClick = onTrackClick
+                        onTrackClick = { track -> onTrackClick(track, filteredTracks) }
                     )
                     MusicCategory.ARTIST -> ArtistTab(
                         artistGroups = artistGroups,
                         coverCache = coverCache,
-                        onTrackClick = onTrackClick
+                        // 按曲目所属的歌手分组传递上下文
+                        onTrackClick = { track ->
+                            val artistName = track.artist.ifBlank { "未知艺术家" }
+                            val contextTracks = artistGroups[artistName] ?: listOf(track)
+                            onTrackClick(track, contextTracks)
+                        }
                     )
                     MusicCategory.ALBUM -> AlbumTab(
                         albumGroups = albumGroups,
                         coverCache = coverCache,
-                        onTrackClick = onTrackClick
+                        // 按曲目所属的专辑分组传递上下文
+                        onTrackClick = { track ->
+                            val albumName = track.album.ifBlank { "未知专辑" }
+                            val contextTracks = albumGroups[albumName] ?: listOf(track)
+                            onTrackClick(track, contextTracks)
+                        }
                     )
                 }
 
@@ -264,6 +277,11 @@ fun ArtistSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 4.dp)
+                .border(
+                    width = 2.5.dp,
+                    color = MaterialTheme.colorScheme.itemBorderColor,
+                    shape = RoundedCornerShape(16.dp)
+                )
         ) {
             Row(
                 modifier = Modifier
@@ -379,6 +397,11 @@ fun AlbumSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 4.dp)
+                .border(
+                    width = 2.5.dp,
+                    color = MaterialTheme.colorScheme.itemBorderColor,
+                    shape = RoundedCornerShape(16.dp)
+                )
         ) {
             Row(
                 modifier = Modifier
@@ -439,7 +462,12 @@ fun TrackRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 3.dp)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .border(
+                width = 2.5.dp,
+                color = MaterialTheme.colorScheme.itemBorderColor,
+                shape = RoundedCornerShape(12.dp)
+            ),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer
