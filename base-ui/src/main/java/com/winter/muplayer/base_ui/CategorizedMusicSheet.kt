@@ -320,11 +320,6 @@ fun ArtistSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 4.dp)
-                .border(
-                    width = 2.5.dp,
-                    color = MaterialTheme.colorScheme.itemBorderColor,
-                    shape = RoundedCornerShape(16.dp)
-                )
         ) {
             Row(
                 modifier = Modifier
@@ -440,11 +435,6 @@ fun AlbumSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 4.dp)
-                .border(
-                    width = 2.5.dp,
-                    color = MaterialTheme.colorScheme.itemBorderColor,
-                    shape = RoundedCornerShape(16.dp)
-                )
         ) {
             Row(
                 modifier = Modifier
@@ -505,12 +495,7 @@ fun TrackRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 3.dp)
-            .clickable(onClick = onClick)
-            .border(
-                width = 2.5.dp,
-                color = MaterialTheme.colorScheme.itemBorderColor,
-                shape = RoundedCornerShape(12.dp)
-            ),
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer

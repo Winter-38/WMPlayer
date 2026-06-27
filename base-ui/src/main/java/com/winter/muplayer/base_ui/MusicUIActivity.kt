@@ -133,7 +133,7 @@ class MusicUIActivity : ComponentActivity() {
 
         setContent {
             AppTheme {
-                androidx.compose.material3.Surface(
+                Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
@@ -220,7 +220,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                     TopAppBar(
                         title = {
                             Text(
-                                text = "WMPlayer-0.5.4-SNAPSHOT",
+                                text = "WMPlayer",
                                 fontWeight = FontWeight.Bold
                             )
                         },
@@ -338,7 +338,7 @@ fun MiniPlayerBar(
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
         Row(
             modifier = Modifier
@@ -1305,11 +1305,6 @@ fun QueueTrackItem(
                 .combinedClickable(
                     onClick = onPlay,
                     onLongClick = onLongPress
-                )
-                .border(
-                    width = 2.5.dp,
-                    color = MaterialTheme.colorScheme.itemBorderColor,
-                    shape = RoundedCornerShape(12.dp)
                 ),
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(
