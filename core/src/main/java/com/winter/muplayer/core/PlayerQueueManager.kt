@@ -27,6 +27,10 @@ data class QueueEntry(
  * 管着当前要播什么歌、播到哪一首了、按什么顺序播。
  * 支持顺序播放、随机打乱、单曲循环三种模式，
  * 所有操作都是线程安全的，放心用！
+ *
+ * 队列操作支持两种语义：
+ * - [enqueue] / [enqueueAll]：追加到队列末尾（FIFO）
+ * - [enqueueNext] / [enqueueNextAll]：插入到当前播放位置之后（"下一首播放"）
  */
 class PlayQueueManager {
 
@@ -59,42 +63,87 @@ class PlayQueueManager {
         playMode
     }
 
+    // ==================== 队列操作 ====================
+
     /**
-     * 把一首歌插入队列头部（堆栈模式：先进后播）。
-     * 如果队列本来是空的，它会自动变成当前曲目。
+     * 将一首歌追加到队列末尾（FIFO 行为）。
+     * 如果队列为空，自动成为当前曲目。
      */
-    suspend fun addTrack(track: Track) = mutex.withLock {
+    suspend fun enqueue(track: Track) = mutex.withLock {
         val entry = QueueEntry(uid = uidCounter++, track = track)
         val wasEmpty = _queue.value.isEmpty()
-        _queue.update { mutableListOf(entry).also { it.addAll(it.size, _queue.value) } }
+        _queue.update { it + entry }
         if (wasEmpty) {
             _currentIndex.value = 0
-        } else if (_currentIndex.value >= 0) {
-            _currentIndex.value = _currentIndex.value + 1
         }
         if (playMode == PlayMode.SHUFFLE) {
-            insertIntoShuffleIndices(0)
+            val newIndex = _queue.value.size - 1
+            shuffleIndices = shuffleIndices + newIndex
         }
     }
 
     /**
-     * 批量插入到队列头部（堆栈模式）。
-     * 列表中第一首歌在栈最底部，最后一首在最顶部（最先播放）。
+     * 批量追加到队列末尾。
+     * 保持 tracks 的原始顺序。
      */
-    suspend fun addTracks(tracks: List<Track>) = mutex.withLock {
-        val entries = tracks.reversed().map { track ->
-            QueueEntry(uid = uidCounter++, track = track)
-        }
+    suspend fun enqueueAll(tracks: List<Track>) = mutex.withLock {
+        val entries = tracks.map { QueueEntry(uid = uidCounter++, track = it) }
         val wasEmpty = _queue.value.isEmpty()
-        _queue.update { entries + it }
+        val oldSize = _queue.value.size
+        _queue.update { it + entries }
         if (wasEmpty) {
             _currentIndex.value = 0
-        } else if (_currentIndex.value >= 0) {
-            _currentIndex.value = _currentIndex.value + entries.size
         }
         if (playMode == PlayMode.SHUFFLE) {
-            for (i in 0 until entries.size) {
-                insertIntoShuffleIndices(i)
+            for (i in oldSize until _queue.value.size) {
+                shuffleIndices = shuffleIndices + i
+            }
+        }
+    }
+
+    /**
+     * 将一首歌插入到当前播放位置之后（"下一首播放"）。
+     * 当前正在播放的歌曲不受影响，播完它后自动切到新歌。
+     *
+     * @return 新歌在队列中的索引位置
+     */
+    suspend fun enqueueNext(track: Track): Int = mutex.withLock {
+        val entry = QueueEntry(uid = uidCounter++, track = track)
+        val list = _queue.value
+        if (list.isEmpty()) {
+            _queue.update { listOf(entry) }
+            _currentIndex.value = 0
+            return@withLock 0
+        }
+        val insertPos = _currentIndex.value + 1
+        _queue.update { list ->
+            list.subList(0, insertPos) + entry + list.subList(insertPos, list.size)
+        }
+        if (playMode == PlayMode.SHUFFLE) {
+            insertIntoShuffleIndices(insertPos)
+        }
+        return@withLock insertPos
+    }
+
+    /**
+     * 批量插入到当前播放位置之后（"下一首播放"）。
+     * tracks 的顺序保持不变：第一首紧跟在当前歌曲之后。
+     */
+    suspend fun enqueueNextAll(tracks: List<Track>) = mutex.withLock {
+        val entries = tracks.map { QueueEntry(uid = uidCounter++, track = it) }
+        val list = _queue.value
+        if (list.isEmpty()) {
+            _queue.update { entries }
+            _currentIndex.value = 0
+            return@withLock
+        }
+        val insertPos = _currentIndex.value + 1
+        _queue.update { list ->
+            list.subList(0, insertPos) + entries + list.subList(insertPos, list.size)
+        }
+        if (playMode == PlayMode.SHUFFLE) {
+            for (i in entries.indices) {
+                insertIntoShuffleIndices(insertPos + i)
             }
         }
     }
@@ -285,6 +334,9 @@ class PlayQueueManager {
      * 增量插入新歌到随机序列里～
      * 比全量重建温柔多了，不会把已经播过的顺序打乱。
      * 新歌会被随机插到序列的某个位置。
+     *
+     * 注意：在插入新索引之前，会先把 shuffleIndices 中所有 >= newIndex 的旧索引 +1，
+     * 因为队列中这些位置的元素已经往后移了一位。
      */
     private fun insertIntoShuffleIndices(newIndex: Int) {
         if (shuffleIndices.isEmpty()) {
@@ -292,8 +344,10 @@ class PlayQueueManager {
             shufflePosition = 0
             return
         }
-        val insertPos = (0..shuffleIndices.size).random()
-        val mutableList = shuffleIndices.toMutableList()
+        // 队列中在 newIndex 及之后的元素都往后移了一位，对应的索引也要 +1
+        val adjusted = shuffleIndices.map { if (it >= newIndex) it + 1 else it }
+        val insertPos = (0..adjusted.size).random()
+        val mutableList = adjusted.toMutableList()
         mutableList.add(insertPos, newIndex)
         shuffleIndices = mutableList
         if (insertPos <= shufflePosition) {

@@ -263,25 +263,24 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
         }
     }
 
-    /** 往播放队列里加一首歌～ */
+    /** 将曲目追加到播放队列末尾～ */
     override fun addTrack(track: Track) {
         if (isReleased) return
         scope.launch {
-            queueManager.addTrack(track)
+            queueManager.enqueue(track)
         }
     }
 
     /**
-     * 添加一首歌到队列并立即播放。
+     * 将曲目插入到当前播放之后并立即播放（"下一首播放"）。
      * 即使当前正在播放也会切到这首歌。
      */
     override fun playTrack(track: Track) {
         if (isReleased) return
         scope.launch {
             engineMutex.withLock {
-                queueManager.addTrack(track)
-                // 栈插入后新歌在 index=0
-                queueManager.setCurrentIndex(0)
+                val newIndex = queueManager.enqueueNext(track)
+                queueManager.setCurrentIndex(newIndex)
                 val currentTrack = queueManager.getCurrentTrack()
                 if (currentTrack != null) {
                     progressTracker.stop()
@@ -292,11 +291,11 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
         }
     }
 
-    /** 一次加一堆歌～ */
+    /** 一次加一堆歌到队列末尾～ */
     override fun addTracks(tracks: List<Track>) {
         if (isReleased) return
         scope.launch {
-            queueManager.addTracks(tracks)
+            queueManager.enqueueAll(tracks)
         }
     }
 
@@ -348,8 +347,8 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
     /**
      * 智能播放：播放一首歌，并根据队列状态决定是否批量添加。
      *
-     * - 队列为空 → 将 [batch] 中的所有歌曲加入队列，播放 [track]
-     * - 队列非空 → 仅添加 [track] 单曲并播放
+     * - 队列为空 → 将 [batch] 中的所有歌曲加入队列末尾，播放 [track]
+     * - 队列非空 → 将 [batch] 中的所有歌曲按顺序插入到当前播放之后，播放 [track]
      */
     fun playTrackSmart(track: Track, batch: List<Track>) {
         AppLogger.i("Player", "playTrackSmart: ${track.title} (batch=${batch.size})")
@@ -358,7 +357,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
             engineMutex.withLock {
                 if (queueManager.isEmpty()) {
                     // 队列为空：先添加所有 batch 歌曲，再定位到目标曲目
-                    queueManager.addTracks(batch)
+                    queueManager.enqueueAll(batch)
                     val targetIndex = queueManager.queue.value.indexOfFirst { it.track.id == track.id }
                     if (targetIndex >= 0) {
                         queueManager.setCurrentIndex(targetIndex)
@@ -370,9 +369,18 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
                         }
                     }
                 } else {
-                    // 队列非空：只加单曲切到该曲
-                    queueManager.addTrack(track)
-                    queueManager.setCurrentIndex(0)
+                    // 队列非空：将整个上下文列表按顺序插入到当前播放之后
+                    val insertBase = queueManager.currentIndex.value + 1
+                    // 检查队列中是否已包含 batch 的完整序列，避免重复插入
+                    val queueIds = queueManager.queue.value.map { it.track.id }
+                    val batchIds = batch.map { it.id }
+                    if (!queueIds.containsSlice(batchIds)) {
+                        queueManager.enqueueNextAll(batch)
+                    }
+                    val offsetInBatch = batch.indexOfFirst { it.id == track.id }
+                    if (offsetInBatch >= 0) {
+                        queueManager.setCurrentIndex(insertBase + offsetInBatch)
+                    }
                     val currentTrack = queueManager.getCurrentTrack()
                     if (currentTrack != null) {
                         progressTracker.stop()
@@ -451,4 +459,23 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
             }
         }
     }
+}
+
+/**
+ * 检查列表中是否包含指定的连续子序列。
+ */
+private fun List<Long>.containsSlice(slice: List<Long>): Boolean {
+    if (slice.isEmpty()) return true
+    if (size < slice.size) return false
+    for (i in 0..size - slice.size) {
+        var match = true
+        for (j in slice.indices) {
+            if (this[i + j] != slice[j]) {
+                match = false
+                break
+            }
+        }
+        if (match) return true
+    }
+    return false
 }

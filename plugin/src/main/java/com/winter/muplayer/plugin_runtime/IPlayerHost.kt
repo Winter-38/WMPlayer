@@ -64,10 +64,10 @@ interface IPlayerHost {
     /** 播放指定曲目 */
     fun playTrack(track: Track)
 
-    /** 添加曲目到队列 */
+    /** 追加曲目到队列末尾 */
     fun addTrack(track: Track)
 
-    /** 批量添加 */
+    /** 批量追加到队列末尾 */
     fun addTracks(tracks: List<Track>)
 
     /** 获取当前队列 */

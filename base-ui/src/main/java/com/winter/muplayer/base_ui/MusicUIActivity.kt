@@ -66,6 +66,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -86,6 +87,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -95,6 +97,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -378,8 +381,13 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
         }
     }
 
-    // ====== 全屏播放面板 ======
-    if (showFullPlayer) {
+    // ====== 全屏播放面板（从下滑入，退出由面板内手动控制） ======
+    AnimatedVisibility(
+        visible = showFullPlayer,
+        enter = slideInVertically(animationSpec = tween(300)) { it },
+        exit = slideOutVertically(animationSpec = tween(0)) { it }
+    ) {
+        BackHandler { showFullPlayer = false }
         FullPlayerPanel(
             playerState = playerState,
             playMode = playMode,
@@ -577,59 +585,40 @@ fun FullPlayerPanel(
     val scope = rememberCoroutineScope()
     var offsetY by remember { mutableFloatStateOf(0f) }
     var itemHeight by remember { mutableFloatStateOf(0f) }
-    var dismissRequested by remember { mutableStateOf(false) }
     var isExiting by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
 
-    LaunchedEffect(dismissRequested) {
-        if (dismissRequested) {
+    val performDismiss: () -> Unit = {
+        scope.launch {
+            isExiting = true
             animate(initialValue = offsetY, targetValue = itemHeight) { value, _ ->
                 offsetY = value
             }
-            isExiting = true
             onDismiss()
         }
     }
 
-    val swipeConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-                return if (delta > 0f && scrollState.value == 0) {
-                    val newOffset = (offsetY + delta).coerceIn(0f, itemHeight)
-                    val consumed = newOffset - offsetY
-                    offsetY = newOffset
-                    Offset(0f, consumed)
-                } else {
-                    Offset.Zero
-                }
-            }
+    val surfaceColor = MaterialTheme.colorScheme.surface
 
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (offsetY > itemHeight * 0.25f) {
-                    dismissRequested = true
-                } else {
-                    scope.launch {
-                        animate(initialValue = offsetY, targetValue = 0f) { value, _ ->
-                            offsetY = value
-                        }
-                    }
-                }
-                return available
-            }
-        }
-    }
-
-    BackHandler(onBack = onDismiss)
+    BackHandler(onBack = performDismiss)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isExiting) Color.Transparent else MaterialTheme.colorScheme.surface)
-            .nestedScroll(swipeConnection)
             .onSizeChanged { itemHeight = it.height.toFloat() }
             .offset { IntOffset(0, offsetY.roundToInt()) }
-            .graphicsLayer { alpha = 1f - (offsetY / itemHeight).coerceIn(0f, 0.5f) }
+            .drawWithContent {
+                // 背景色根据 offsetY 从实色渐变到透明，露出下层主界面
+                val bgProgress = (offsetY / size.height).coerceIn(0f, 1f)
+                drawRect(
+                    color = surfaceColor.copy(alpha = 1f - bgProgress),
+                    size = size
+                )
+                // 从顶部裁剪 offsetY 像素，让主界面随着下滑逐渐从顶部露出
+                clipRect(top = offsetY, bottom = size.height) {
+                    this@drawWithContent.drawContent()
+                }
+            }
     ) {
             // ====== 封面模糊背景层 ======
             if (blurBackground && currentTrack != null) {
@@ -654,189 +643,227 @@ fun FullPlayerPanel(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .padding(horizontal = 24.dp)
-                    .verticalScroll(scrollState),
+                    .padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // ====== 大型封面 ======
-                Spacer(Modifier.height(32.dp))
-
-            if (currentTrack != null) {
-                val hasCover = coverCache.containsKey(currentTrack.id) || currentTrack.albumId > 0L
-                if (hasCover) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(getAlbumArtUri(currentTrack, coverCache))
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(280.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .shadow(16.dp, RoundedCornerShape(24.dp))
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(280.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .shadow(16.dp, RoundedCornerShape(24.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painterResource(R.drawable.ic_music_off),
-                            contentDescription = null,
-                            modifier = Modifier.size(100.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                    }
-                }
-            } else {
+                // ====== 封面（占上半部空间，下滑退出手势） ======
                 Box(
                     modifier = Modifier
-                        .size(280.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(top = 16.dp, bottom = 12.dp)
+                        .pointerInput(Unit) {
+                            detectVerticalDragGestures(
+                                onDragEnd = {
+                                    if (offsetY > itemHeight * 0.25f) {
+                                        performDismiss()
+                                    } else {
+                                        scope.launch {
+                                            animate(initialValue = offsetY, targetValue = 0f) { value, _ ->
+                                                offsetY = value
+                                            }
+                                        }
+                                    }
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    if (dragAmount > 0f) {
+                                        change.consume()
+                                        val newOffset = (offsetY + dragAmount).coerceIn(0f, itemHeight)
+                                        offsetY = newOffset
+                                    }
+                                }
+                            )
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        painterResource(R.drawable.ic_music_off),
-                        contentDescription = null,
-                        modifier = Modifier.size(100.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(24.dp))
-
-            // ====== 歌曲信息 ======
-            Text(
-                text = currentTrack?.title ?: "未选择曲目",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            if (currentTrack != null) {
-                Text(
-                    text = "${currentTrack.artist} • ${currentTrack.album}",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-
-            Spacer(Modifier.height(24.dp))
-
-            // ====== 进度条 ======
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Slider(
-                    value = if (playerState.duration > 0)
-                        playerState.progress.toFloat() / playerState.duration.toFloat()
-                    else 0f,
-                    onValueChange = { fraction ->
-                        onSeek((fraction * playerState.duration).toLong())
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = formatDuration(playerState.progress),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = formatDuration(playerState.duration),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            // ====== 播放控制按钮 ======
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 播放模式
-                PlayModeButton(
-                    playMode = playMode,
-                    onClick = {
-                        val newMode = when (playMode) {
-                            PlayMode.SEQUENTIAL -> PlayMode.SHUFFLE
-                            PlayMode.SHUFFLE -> PlayMode.SINGLE_LOOP
-                            PlayMode.SINGLE_LOOP -> PlayMode.REPEAT_ALL
-                            PlayMode.REPEAT_ALL -> PlayMode.SEQUENTIAL
+                    if (currentTrack != null) {
+                        val hasCover = coverCache.containsKey(currentTrack.id) || currentTrack.albumId > 0L
+                        if (hasCover) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(getAlbumArtUri(currentTrack, coverCache))
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .shadow(16.dp, RoundedCornerShape(24.dp))
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .shadow(16.dp, RoundedCornerShape(24.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ic_music_off),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(100.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                )
+                            }
                         }
-                        onPlayModeChange(newMode)
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.ic_music_off),
+                                contentDescription = null,
+                                modifier = Modifier.size(100.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
+                        }
                     }
-                )
-
-                // 上一首
-                ControlButton(
-                    icon = painterResource(R.drawable.ic_skip_previous),
-                    onClick = onPrevious,
-                    size = 48.dp
-                )
-
-                // 播放/暂停
-                PlayPauseButton(
-                    isPlaying = isPlaying,
-                    isLoading = playerState.state == PlayerState.LOADING,
-                    onPlay = onPlay,
-                    onPause = onPause
-                )
-
-                // 下一首
-                ControlButton(
-                    icon = painterResource(R.drawable.ic_skip_next),
-                    onClick = onNext,
-                    size = 48.dp
-                )
-
-                // 播放列表
-                IconButton(onClick = onShowQueue) {
-                    Icon(
-                        painterResource(R.drawable.ic_playlist_music),
-                        contentDescription = "播放列表",
-                        modifier = Modifier.size(32.dp),
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
                 }
-            }
 
-            Spacer(Modifier.height(16.dp))
+                // ====== 下半部分 ======
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(scrollState),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    // ====== 歌曲信息 ======
+                    Text(
+                        text = currentTrack?.title ?: "未选择曲目",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
 
-            // ====== 插件 Slot ======
-            if (slotWidgets.isNotEmpty()) {
-                PluginSlot(
-                    slotName = "below_controls",
-                    widgets = slotWidgets,
-                    onWidgetAction = { action ->
-                        android.util.Log.d("PluginSlot", "Widget action: $action")
+                    if (currentTrack != null) {
+                        Text(
+                            text = "${currentTrack.artist} • ${currentTrack.album}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
                     }
-                )
-            }
 
-            Spacer(Modifier.height(32.dp))
+                    Spacer(Modifier.height(16.dp))
+
+                    // ====== 进度条 ======
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Slider(
+                            value = if (playerState.duration > 0)
+                                playerState.progress.toFloat() / playerState.duration.toFloat()
+                            else 0f,
+                            onValueChange = { fraction ->
+                                onSeek((fraction * playerState.duration).toLong())
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary,
+                                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = formatDuration(playerState.progress),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = formatDuration(playerState.duration),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    // ====== 播放控制按钮 ======
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 播放模式
+                        PlayModeButton(
+                            playMode = playMode,
+                            onClick = {
+                                val newMode = when (playMode) {
+                                    PlayMode.SEQUENTIAL -> PlayMode.SHUFFLE
+                                    PlayMode.SHUFFLE -> PlayMode.SINGLE_LOOP
+                                    PlayMode.SINGLE_LOOP -> PlayMode.REPEAT_ALL
+                                    PlayMode.REPEAT_ALL -> PlayMode.SEQUENTIAL
+                                }
+                                onPlayModeChange(newMode)
+                            }
+                        )
+
+                        // 上一首
+                        ControlButton(
+                            icon = painterResource(R.drawable.ic_skip_previous),
+                            onClick = onPrevious,
+                            size = 48.dp
+                        )
+
+                        // 播放/暂停
+                        PlayPauseButton(
+                            isPlaying = isPlaying,
+                            isLoading = playerState.state == PlayerState.LOADING,
+                            onPlay = onPlay,
+                            onPause = onPause
+                        )
+
+                        // 下一首
+                        ControlButton(
+                            icon = painterResource(R.drawable.ic_skip_next),
+                            onClick = onNext,
+                            size = 48.dp
+                        )
+
+                        // 播放列表
+                        IconButton(onClick = onShowQueue) {
+                            Icon(
+                                painterResource(R.drawable.ic_playlist_music),
+                                contentDescription = "播放列表",
+                                modifier = Modifier.size(32.dp),
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
+                    // ====== 插件 Slot ======
+                    if (slotWidgets.isNotEmpty()) {
+                        PluginSlot(
+                            slotName = "below_controls",
+                            widgets = slotWidgets,
+                            onWidgetAction = { action ->
+                                android.util.Log.d("PluginSlot", "Widget action: $action")
+                            }
+                        )
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                }
         }
     }
 }
