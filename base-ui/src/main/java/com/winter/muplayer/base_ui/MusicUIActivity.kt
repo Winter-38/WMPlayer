@@ -154,15 +154,13 @@ class MusicUIActivity : ComponentActivity() {
             var currentDynamicColor by remember { mutableStateOf(settings.dynamicColorEnabled) }
             var currentBlurBg by remember { mutableStateOf(settings.blurBackground) }
 
-            val isDark = when (currentThemeMode) {
-                com.winter.muplayer.core.SettingsManager.ThemeMode.SYSTEM ->
-                    isSystemInDarkTheme()
-                com.winter.muplayer.core.SettingsManager.ThemeMode.DARK -> true
-                com.winter.muplayer.core.SettingsManager.ThemeMode.LIGHT -> false
-            }
-
             AppTheme(
-                darkTheme = isDark,
+                darkTheme = when (currentThemeMode) {
+                    com.winter.muplayer.core.SettingsManager.ThemeMode.SYSTEM ->
+                        isSystemInDarkTheme()
+                    com.winter.muplayer.core.SettingsManager.ThemeMode.DARK -> true
+                    com.winter.muplayer.core.SettingsManager.ThemeMode.LIGHT -> false
+                },
                 dynamicColor = currentDynamicColor
             ) {
                 Surface(
