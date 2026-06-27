@@ -19,7 +19,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import com.winter.muplayer.base_ui.ui.theme.itemBorderColor
-import com.winter.muplayer.plugin.ShadowPluginHost
+import com.winter.muplayer.plugin_manager.ShadowPluginHost
 import com.winter.muplayer.plugin_manager.PluginInstallInfo
 
 /**
@@ -164,7 +164,6 @@ fun PluginManagerScreen(
 
 /**
  * 一个插件的信息卡片～
- *
  * 展示插件的名字、类型、版本，以及卸载按钮。
  */
 @Composable

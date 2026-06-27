@@ -1,6 +1,6 @@
 package com.winter.muplayer.core
 
-import com.winter.muplayer.engine.PlayerEngine
+import com.winter.muplayer.core.engine.PlayerEngine
 import com.winter.muplayer.model.PlayerState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow

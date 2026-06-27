@@ -1,11 +1,13 @@
-package com.winter.muplayer.plugin
+package com.winter.muplayer.plugin_manager
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
-import com.winter.muplayer.plugin_manager.PluginManager
+import android.view.View
 import com.winter.muplayer.plugin_runtime.IPlayerHost
 import com.winter.muplayer.plugin_runtime.IPlugin
 import com.winter.muplayer.plugin_runtime.PluginMetadata
+import com.winter.muplayer.plugin_runtime.PluginWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,7 +47,7 @@ class ShadowPluginHost(
     // ==================== 插件信息 ====================
 
     /** 已安装的插件信息 */
-    val installedPlugins: StateFlow<List<com.winter.muplayer.plugin_manager.PluginInstallInfo>>
+    val installedPlugins: StateFlow<List<PluginInstallInfo>>
         get() = pluginManager.installedPlugins
 
     /** 已加载的插件实例 */
@@ -77,7 +79,7 @@ class ShadowPluginHost(
      * @param apkUri 插件 APK 的 Uri（content:// 或 file://）
      * @param autoLoad 安装后是否自动加载
      */
-    fun install(apkUri: android.net.Uri, autoLoad: Boolean = true) {
+    fun install(apkUri: Uri, autoLoad: Boolean = true) {
         scope.launch {
             val info = pluginManager.install(apkUri)
             if (info != null && autoLoad) {
@@ -125,8 +127,8 @@ class ShadowPluginHost(
      * @param pluginId 可选，限定到具体插件
      * @return 匹配的 View 列表
      */
-    fun getSlotViews(slotName: String, pluginId: String? = null): List<android.view.View> {
-        val result = mutableListOf<android.view.View>()
+    fun getSlotViews(slotName: String, pluginId: String? = null): List<View> {
+        val result = mutableListOf<View>()
         for ((id, plugin) in pluginManager.loadedPlugins.value) {
             if (pluginId != null && id != pluginId) continue
             try {
@@ -145,7 +147,7 @@ class ShadowPluginHost(
      * 插件可以通过 [IPlugin.getSlotView] 返回一个 View，
      * 也可以返回元数据中的 Widget 描述。
      */
-    fun getSlotWidgets(slotName: String): List<com.winter.muplayer.plugin_runtime.PluginWidget> {
+    fun getSlotWidgets(slotName: String): List<PluginWidget> {
         // 在当前实现中，插件通过 getSlotView 返回 View。
         // 如果未来需要 Compose-native Widget 描述，可在此扩展。
         return emptyList()

@@ -1,4 +1,4 @@
-package com.winter.muplayer.engine
+package com.winter.muplayer.core.engine
 
 import android.content.Context
 import androidx.annotation.OptIn

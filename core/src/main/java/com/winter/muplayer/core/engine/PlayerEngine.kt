@@ -1,4 +1,4 @@
-package com.winter.muplayer.engine
+package com.winter.muplayer.core.engine
 
 import com.winter.muplayer.model.PlayerStateData
 import com.winter.muplayer.model.Track

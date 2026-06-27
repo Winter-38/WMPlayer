@@ -1,13 +1,13 @@
 package com.winter.muplayer.core
 
 import android.content.Context
-import com.winter.muplayer.engine.ExoPlayerEngine
-import com.winter.muplayer.engine.PlayerEngine
+import com.winter.muplayer.core.engine.ExoPlayerEngine
+import com.winter.muplayer.core.engine.PlayerEngine
 import com.winter.muplayer.model.PlayMode
 import com.winter.muplayer.model.PlayerState
 import com.winter.muplayer.model.PlayerStateData
 import com.winter.muplayer.model.Track
-import com.winter.muplayer.plugin.ShadowPluginHost
+import com.winter.muplayer.plugin_manager.ShadowPluginHost
 import com.winter.muplayer.plugin_runtime.IPlayerHost
 import com.winter.muplayer.core.AppLogger
 import kotlinx.coroutines.*

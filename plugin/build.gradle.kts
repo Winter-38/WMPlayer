@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.winter.muplayer.plugin_runtime"
+    namespace = "com.winter.muplayer.plugin"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
