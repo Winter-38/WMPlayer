@@ -3,6 +3,7 @@ package com.winter.muplayer.core
 import android.content.Context
 import com.winter.muplayer.core.engine.ExoPlayerEngine
 import com.winter.muplayer.core.engine.PlayerEngine
+import com.winter.muplayer.core.SettingsManager
 import com.winter.muplayer.model.PlayMode
 import com.winter.muplayer.model.PlayerState
 import com.winter.muplayer.model.PlayerStateData
@@ -63,6 +64,9 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
     /** 进度追踪器，每隔一会儿就问引擎「播到哪了」 */
     private val progressTracker = ProgressTracker(scope, engine)
 
+    /** 应用设置管理器 */
+    val settings = SettingsManager(context)
+
     /** Shadow 插件宿主——基于 DexClassLoader 的动态插件加载 */
     val shadowPluginHost = ShadowPluginHost(context, this)
 
@@ -102,11 +106,18 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
             }
         }
 
+        // 应用设置：默认播放模式、跨fade、音频焦点
+        val savedMode = settings.defaultPlayMode
+        if (savedMode != PlayMode.SEQUENTIAL) {
+            setPlayMode(savedMode)
+        }
+        if (settings.crossfadeDurationMs > 0) {
+            (engine as? ExoPlayerEngine)?.setCrossfadeDuration(settings.crossfadeDurationMs)
+        }
+        (engine as? ExoPlayerEngine)?.setAudioFocusDuck(settings.audioFocusDuck)
+
         // 启动时加载所有已安装的插件（Shadow 架构）
         shadowPluginHost.loadAll()
-
-        // Shadow 架构下插件通过 IPlayerHost 直接读取状态，
-        // 无需再广播状态变化——插件自己 collect StateFlow 即可。
     }
 
     /**
@@ -244,6 +255,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
 
     /** 切换播放模式～会同步更新队列管理器的模式 */
     fun setPlayMode(mode: PlayMode) {
+        settings.defaultPlayMode = mode
         scope.launch {
             if (isReleased) return@launch
             queueManager.setPlayMode(mode)

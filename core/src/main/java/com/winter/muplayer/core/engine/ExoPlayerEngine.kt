@@ -1,6 +1,9 @@
 package com.winter.muplayer.core.engine
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -18,12 +21,43 @@ import kotlinx.coroutines.flow.update
 @OptIn(UnstableApi::class)
 class ExoPlayerEngine(context: Context) : PlayerEngine {
 
-    private val exoPlayer: ExoPlayer = ExoPlayer.Builder(context).build()
+    private val appContext = context.applicationContext
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+    private val exoPlayer: ExoPlayer = ExoPlayer.Builder(appContext).build()
 
     private val _playerState = MutableStateFlow(PlayerStateData())
     override val playerState: StateFlow<PlayerStateData> = _playerState.asStateFlow()
 
     private var onTrackEndListener: (() -> Unit)? = null
+    private var crossfadeMs: Int = 0
+    private var duckOnFocusLoss: Boolean = false
+    private var hasAudioFocus = false
+
+    // AudioFocus 回调
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                hasAudioFocus = false
+                exoPlayer.pause()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                exoPlayer.pause()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (duckOnFocusLoss) {
+                    exoPlayer.volume = 0.3f
+                } else {
+                    exoPlayer.pause()
+                }
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                hasAudioFocus = true
+                exoPlayer.volume = 1.0f
+                if (exoPlayer.playWhenReady) exoPlayer.play()
+            }
+        }
+    }
 
     private val playerListener = object : Player.Listener {
 
@@ -75,8 +109,56 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
     }
 
     init {
-        // 把监听器挂上去，播放器有啥动静咱都知道～
         exoPlayer.addListener(playerListener)
+    }
+
+    /** 设置跨fade 时长（毫秒），0=关闭 */
+    fun setCrossfadeDuration(ms: Int) {
+        crossfadeMs = ms.coerceIn(0, 5000)
+    }
+
+    /** 设置音频焦点策略 */
+    fun setAudioFocusDuck(duck: Boolean) {
+        duckOnFocusLoss = duck
+    }
+
+    /** 请求音频焦点 */
+    private fun requestAudioFocus() {
+        if (hasAudioFocus) return
+        val result = if (android.os.Build.VERSION.SDK_INT >= 26) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener(audioFocusChangeListener)
+                .build()
+            audioManager.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                audioFocusChangeListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+        }
+        hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
+    /** 释放音频焦点 */
+    private fun abandonAudioFocus() {
+        if (!hasAudioFocus) return
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            audioManager.abandonAudioFocusRequest(
+                AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).build()
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(audioFocusChangeListener)
+        }
+        hasAudioFocus = false
     }
 
     override fun prepare(track: Track) {
@@ -104,6 +186,7 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
     }
 
     override fun play() {
+        requestAudioFocus()
         exoPlayer.playWhenReady = true
     }
 
@@ -113,6 +196,7 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
 
     override fun stop() {
         exoPlayer.stop()
+        abandonAudioFocus()
         _playerState.update {
             it.copy(
                 state = PlayerState.IDLE,
@@ -128,6 +212,7 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
 
     override fun release() {
         exoPlayer.removeListener(playerListener)
+        abandonAudioFocus()
         exoPlayer.release()
     }
 

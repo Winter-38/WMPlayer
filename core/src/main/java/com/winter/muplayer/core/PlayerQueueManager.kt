@@ -178,6 +178,16 @@ class PlayQueueManager {
                     list[realIndex].track
                 }
             }
+            PlayMode.REPEAT_ALL -> {
+                val next = _currentIndex.value + 1
+                if (next < list.size) {
+                    _currentIndex.value = next
+                    list[next].track
+                } else {
+                    _currentIndex.value = 0
+                    list[0].track
+                }
+            }
         }
         result
     }
@@ -213,6 +223,16 @@ class PlayQueueManager {
                     val realIndex = shuffleIndices[shufflePosition]
                     _currentIndex.value = realIndex
                     list[realIndex].track
+                }
+            }
+            PlayMode.REPEAT_ALL -> {
+                val prev = _currentIndex.value - 1
+                if (prev >= 0) {
+                    _currentIndex.value = prev
+                    list[prev].track
+                } else {
+                    _currentIndex.value = list.size - 1
+                    list.last().track
                 }
             }
         }

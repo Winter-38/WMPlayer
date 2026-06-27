@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
@@ -15,7 +16,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,9 +58,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import com.winter.muplayer.base_ui.ui.theme.AppTheme
-import com.winter.muplayer.base_ui.ui.theme.itemBorderColor
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.unit.dp
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -76,21 +85,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.winter.muplayer.core.MusicPlayerCore
@@ -132,7 +145,21 @@ class MusicUIActivity : ComponentActivity() {
         com.winter.muplayer.core.AppLogger.i("UI", "MusicUIActivity.onCreate")
 
         setContent {
-            AppTheme {
+            val settings = musicPlayerCore.settings
+            val themeMode = settings.themeMode
+            val dynamicColor = settings.dynamicColorEnabled
+
+            val isDark = when (themeMode) {
+                com.winter.muplayer.core.SettingsManager.ThemeMode.SYSTEM ->
+                    isSystemInDarkTheme()
+                com.winter.muplayer.core.SettingsManager.ThemeMode.DARK -> true
+                com.winter.muplayer.core.SettingsManager.ThemeMode.LIGHT -> false
+            }
+
+            AppTheme(
+                darkTheme = isDark,
+                dynamicColor = dynamicColor
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -172,7 +199,8 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
 
     // 插件 UI Slot（Shadow 架构：插件通过 IPlugin.getSlotView 提供 View，
     // PluginWidget 用于 Compose 原生渲染——此处为兼容旧 Slot 机制保留）
-    val slotWidgets = remember { mutableStateMapOf<String, List<com.winter.muplayer.plugin_runtime.PluginWidget>>() }
+    val slotWidgets =
+        remember { mutableStateMapOf<String, List<com.winter.muplayer.plugin_runtime.PluginWidget>>() }
 
     // 首次加载 + 曲目切换时刷新插件状态
     LaunchedEffect(playerState.currentTrack?.id) {
@@ -180,7 +208,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
         // slotWidgets 目前为空，未来插件可通过 ShadowPluginHost.getSlotWidgets() 填充。
     }
 
-    // 首次加载时扫描本地音乐
+    // 首次加载时扫描本地音乐（受设置控制）
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) {
             val permissionGranted = android.Manifest.permission.READ_MEDIA_AUDIO.let { perm ->
@@ -190,10 +218,27 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
             }
             if (!permissionGranted) return@LaunchedEffect
         }
+        if (!musicPlayerCore.settings.autoScanOnStart) return@LaunchedEffect
         isLoadingLocal = true
         val tracks = withContext(Dispatchers.IO) { scanner.scan() }
         for (track in tracks) {
-            loadCoverIfNeeded(track, coverCache, context)
+            if (track.albumId > 0L || coverCache.containsKey(track.id)) continue
+            withContext(Dispatchers.IO) {
+                val filePath = track.uri.removePrefix("file://")
+                val retriever = android.media.MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(filePath)
+                    val picture = retriever.embeddedPicture ?: return@withContext
+                    val cacheDir = File(context.cacheDir, "covers")
+                    cacheDir.mkdirs()
+                    val coverFile = File(cacheDir, "${track.id}.jpg")
+                    coverFile.writeBytes(picture)
+                    coverCache[track.id] = coverFile.absolutePath
+                } catch (_: Exception) {
+                } finally {
+                    retriever.release()
+                }
+            }
         }
         localMusicList = tracks
         isLoadingLocal = false
@@ -202,72 +247,133 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     // ==================== 布局 ====================
 
     Box(modifier = Modifier.fillMaxSize()) {
-        when {
-            showSettings -> {
-                BackHandler { showSettings = false }
-                SettingsScreen(onBack = { showSettings = false })
-            }
-            showPluginManager -> {
-                BackHandler { showPluginManager = false }
-                PluginManagerScreen(
-                    shadowPluginHost = musicPlayerCore.shadowPluginHost,
-                    onBack = { showPluginManager = false }
-                )
-            }
-            else -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // ====== 顶部栏 ======
-                    TopAppBar(
-                        title = {
-                            Text(
-                                text = "WMPlayer",
-                                fontWeight = FontWeight.Bold
-                            )
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface
-                        ),
-                        actions = {
-                            IconButton(onClick = { showPluginManager = true }) {
-                                Icon(
-                                    painterResource(R.drawable.ic_extendsion),
-                                    contentDescription = "插件管理"
-                                )
-                            }
-                            IconButton(onClick = { showSettings = true }) {
-                                Icon(
-                                    painterResource(R.drawable.ic_settings),
-                                    contentDescription = "设置"
-                                )
+        // 设置页面 — 从右滑入，滑出到右
+        AnimatedVisibility(
+            visible = showSettings,
+            enter = slideInHorizontally(animationSpec = tween(200)) { it },
+            exit = slideOutHorizontally(animationSpec = tween(200)) { it }
+        ) {
+            BackHandler { showSettings = false }
+            val settings = musicPlayerCore.settings
+            SettingsScreen(
+                settings = settings,
+                onBack = { showSettings = false },
+                onRescan = {
+                    scope.launch {
+                        scanner.invalidateCache()
+                        isLoadingLocal = true
+                        val tracks = withContext(Dispatchers.IO) { scanner.scan() }
+                        for (track in tracks) {
+                            if (track.albumId > 0L || coverCache.containsKey(track.id)) continue
+                            withContext(Dispatchers.IO) {
+                                val filePath = track.uri.removePrefix("file://")
+                                val retriever = android.media.MediaMetadataRetriever()
+                                try {
+                                    retriever.setDataSource(filePath)
+                                    val picture = retriever.embeddedPicture ?: return@withContext
+                                    val cacheDir = File(context.cacheDir, "covers")
+                                    cacheDir.mkdirs()
+                                    val coverFile = File(cacheDir, "${track.id}.jpg")
+                                    coverFile.writeBytes(picture)
+                                    coverCache[track.id] = coverFile.absolutePath
+                                } catch (_: Exception) {
+                                } finally {
+                                    retriever.release()
+                                }
                             }
                         }
-                    )
-
-                    // ====== 本地音乐列表（可滚动，占满剩余空间） ======
-                    Box(modifier = Modifier.weight(1f)) {
-                        LocalMusicBrowser(
-                            tracks = localMusicList,
-                            isLoading = isLoadingLocal,
-                            coverCache = coverCache,
-                            onTrackClick = { track, contextTracks ->
-                                musicPlayerCore.playTrackSmart(track, contextTracks)
-                            }
-                        )
+                        localMusicList = tracks
+                        isLoadingLocal = false
                     }
+                },
+                cacheInfo = com.winter.muplayer.base_ui.CacheInfo(
+                    formattedSize = run {
+                        val dir = File(context.cacheDir, "covers")
+                        if (!dir.exists()) return@run "0 KB"
+                        val bytes = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+                        when {
+                            bytes < 1024 -> "0 KB"
+                            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+                            else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
+                        }
+                    },
+                    onClearCache = {
+                        coverCache.clear()
+                        context.cacheDir.deleteRecursively()
+                        context.cacheDir.mkdirs()
+                    }
+                )
+            )
+        }
 
-                    // ====== 底部迷你播放条 ======
-                    MiniPlayerBar(
-                        playerState = playerState,
+        // 插件管理 — 从右滑入，滑出到右
+        AnimatedVisibility(
+            visible = showPluginManager,
+            enter = slideInHorizontally(animationSpec = tween(200)) { it },
+            exit = slideOutHorizontally(animationSpec = tween(200)) { it }
+        ) {
+            BackHandler { showPluginManager = false }
+            PluginManagerScreen(
+                shadowPluginHost = musicPlayerCore.shadowPluginHost,
+                onBack = { showPluginManager = false }
+            )
+        }
+
+        // 主界面 — 从左滑入（返回时）
+        AnimatedVisibility(
+            visible = !showSettings && !showPluginManager,
+            enter = slideInHorizontally(animationSpec = tween(200)) { -it },
+            exit = slideOutHorizontally(animationSpec = tween(200)) { -it }
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "WMPlayer",
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    actions = {
+                        IconButton(onClick = { showPluginManager = true }) {
+                            Icon(
+                                painterResource(R.drawable.ic_extendsion),
+                                contentDescription = "插件管理"
+                            )
+                        }
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(
+                                painterResource(R.drawable.ic_settings),
+                                contentDescription = "设置"
+                            )
+                        }
+                    }
+                )
+
+                Box(modifier = Modifier.weight(1f)) {
+                    LocalMusicBrowser(
+                        tracks = localMusicList,
+                        isLoading = isLoadingLocal,
                         coverCache = coverCache,
-                        onPlay = musicPlayerCore::play,
-                        onPause = musicPlayerCore::pause,
-                        onNext = musicPlayerCore::playNext,
-                        onPrevious = musicPlayerCore::playPrevious,
-                        onClick = { showFullPlayer = true },
-                        onShowQueue = { showQueue = true }
+                        onTrackClick = { track, contextTracks ->
+                            musicPlayerCore.playTrackSmart(track, contextTracks)
+                        }
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
                 }
+
+                MiniPlayerBar(
+                    playerState = playerState,
+                    coverCache = coverCache,
+                    onPlay = musicPlayerCore::play,
+                    onPause = musicPlayerCore::pause,
+                    onNext = musicPlayerCore::playNext,
+                    onPrevious = musicPlayerCore::playPrevious,
+                    onClick = { showFullPlayer = true },
+                    onShowQueue = { showQueue = true }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
@@ -279,6 +385,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
             playMode = playMode,
             coverCache = coverCache,
             slotWidgets = slotWidgets["below_controls"] ?: emptyList(),
+            blurBackground = musicPlayerCore.settings.blurBackground,
             onPlay = musicPlayerCore::play,
             onPause = musicPlayerCore::pause,
             onNext = musicPlayerCore::playNext,
@@ -314,7 +421,6 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
         )
     }
 }
-
 // ==================== 迷你底部播放条（参考网易云音乐风格） ====================
 
 @Composable
@@ -456,6 +562,7 @@ fun FullPlayerPanel(
     playMode: PlayMode,
     coverCache: Map<Long, String>,
     slotWidgets: List<PluginWidget>,
+    blurBackground: Boolean = false,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onNext: () -> Unit,
@@ -465,25 +572,94 @@ fun FullPlayerPanel(
     onShowQueue: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val currentTrack = playerState.currentTrack
     val isPlaying = playerState.state == PlayerState.PLAYING
+    val scope = rememberCoroutineScope()
+    var offsetY by remember { mutableFloatStateOf(0f) }
+    var itemHeight by remember { mutableFloatStateOf(0f) }
+    var dismissRequested by remember { mutableStateOf(false) }
+    var isExiting by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        containerColor = MaterialTheme.colorScheme.surface
+    LaunchedEffect(dismissRequested) {
+        if (dismissRequested) {
+            animate(initialValue = offsetY, targetValue = itemHeight) { value, _ ->
+                offsetY = value
+            }
+            isExiting = true
+            onDismiss()
+        }
+    }
+
+    val swipeConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                return if (delta > 0f && scrollState.value == 0) {
+                    val newOffset = (offsetY + delta).coerceIn(0f, itemHeight)
+                    val consumed = newOffset - offsetY
+                    offsetY = newOffset
+                    Offset(0f, consumed)
+                } else {
+                    Offset.Zero
+                }
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (offsetY > itemHeight * 0.25f) {
+                    dismissRequested = true
+                } else {
+                    scope.launch {
+                        animate(initialValue = offsetY, targetValue = 0f) { value, _ ->
+                            offsetY = value
+                        }
+                    }
+                }
+                return available
+            }
+        }
+    }
+
+    BackHandler(onBack = onDismiss)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(if (isExiting) Color.Transparent else MaterialTheme.colorScheme.surface)
+            .nestedScroll(swipeConnection)
+            .onSizeChanged { itemHeight = it.height.toFloat() }
+            .offset { IntOffset(0, offsetY.roundToInt()) }
+            .graphicsLayer { alpha = 1f - (offsetY / itemHeight).coerceIn(0f, 0.5f) }
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // ====== 大型封面 ======
-            Spacer(Modifier.height(16.dp))
+            // ====== 封面模糊背景层 ======
+            if (blurBackground && currentTrack != null) {
+                val hasCover = coverCache.containsKey(currentTrack.id) || currentTrack.albumId > 0L
+                if (hasCover) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(getAlbumArtUri(currentTrack, coverCache))
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .blur(radius = 48.dp)
+                    )
+                }
+            }
+
+            // ====== 前景内容 ======
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(horizontal = 24.dp)
+                    .verticalScroll(scrollState),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // ====== 大型封面 ======
+                Spacer(Modifier.height(32.dp))
 
             if (currentTrack != null) {
                 val hasCover = coverCache.containsKey(currentTrack.id) || currentTrack.albumId > 0L
@@ -496,14 +672,14 @@ fun FullPlayerPanel(
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(300.dp)
+                            .size(280.dp)
                             .clip(RoundedCornerShape(24.dp))
                             .shadow(16.dp, RoundedCornerShape(24.dp))
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(300.dp)
+                            .size(280.dp)
                             .clip(RoundedCornerShape(24.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                             .shadow(16.dp, RoundedCornerShape(24.dp)),
@@ -520,7 +696,7 @@ fun FullPlayerPanel(
             } else {
                 Box(
                     modifier = Modifier
-                        .size(300.dp)
+                        .size(280.dp)
                         .clip(RoundedCornerShape(24.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
@@ -607,7 +783,8 @@ fun FullPlayerPanel(
                         val newMode = when (playMode) {
                             PlayMode.SEQUENTIAL -> PlayMode.SHUFFLE
                             PlayMode.SHUFFLE -> PlayMode.SINGLE_LOOP
-                            PlayMode.SINGLE_LOOP -> PlayMode.SEQUENTIAL
+                            PlayMode.SINGLE_LOOP -> PlayMode.REPEAT_ALL
+                            PlayMode.REPEAT_ALL -> PlayMode.SEQUENTIAL
                         }
                         onPlayModeChange(newMode)
                     }
@@ -1037,7 +1214,8 @@ fun PlayerControls(
                 val newMode = when (playMode) {
                     PlayMode.SEQUENTIAL -> PlayMode.SHUFFLE
                     PlayMode.SHUFFLE -> PlayMode.SINGLE_LOOP
-                    PlayMode.SINGLE_LOOP -> PlayMode.SEQUENTIAL
+                    PlayMode.SINGLE_LOOP -> PlayMode.REPEAT_ALL
+                    PlayMode.REPEAT_ALL -> PlayMode.SEQUENTIAL
                 }
                 onPlayModeChange(newMode)
             }
@@ -1130,12 +1308,14 @@ fun PlayModeButton(
         PlayMode.SEQUENTIAL -> painterResource(R.drawable.ic_shuffle_disabled)
         PlayMode.SHUFFLE -> painterResource(R.drawable.ic_shuffle)
         PlayMode.SINGLE_LOOP -> painterResource(R.drawable.ic_repeat_one)
+        PlayMode.REPEAT_ALL -> painterResource(R.drawable.ic_repeat)
     }
 
     val label = when (playMode) {
         PlayMode.SEQUENTIAL -> "顺序"
         PlayMode.SHUFFLE -> "随机"
         PlayMode.SINGLE_LOOP -> "单曲"
+        PlayMode.REPEAT_ALL -> "循环"
     }
 
     IconButton(onClick = onClick) {
@@ -1309,9 +1489,6 @@ fun QueueTrackItem(
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.secondaryContainer
-            ),
-            elevation = CardDefaults.cardElevation(
-                defaultElevation = if (isCurrentTrack) 4.dp else 0.dp
             )
         ) {
             Row(
@@ -1527,3 +1704,5 @@ private suspend fun loadCoverIfNeeded(
         }
     }
 }
+
+

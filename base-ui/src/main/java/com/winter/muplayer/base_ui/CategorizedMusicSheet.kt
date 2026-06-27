@@ -2,7 +2,6 @@ package com.winter.muplayer.base_ui
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -16,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -26,7 +24,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.winter.muplayer.base_ui.ui.theme.itemBorderColor
 import com.winter.muplayer.model.Track
 
 // ==================== 分类枚举 ====================
@@ -151,10 +148,14 @@ fun LocalMusicBrowser(
         } else if (tracks.isEmpty()) {
             // 空状态
             Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+                modifier = Modifier.fillMaxSize()
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(y = 40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Icon(
                         painterResource(R.drawable.ic_music_off),
                         contentDescription = null,
