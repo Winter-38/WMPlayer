@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -28,10 +29,15 @@ import com.winter.muplayer.model.Track
 
 // ==================== 分类枚举 ====================
 
-enum class MusicCategory(val label: String) {
-    ALL("全部"),
-    ARTIST("歌手"),
-    ALBUM("专辑")
+enum class MusicCategory {
+    ALL, ARTIST, ALBUM
+}
+
+@Composable
+fun MusicCategory.displayName(): String = when (this) {
+    MusicCategory.ALL -> stringResource(R.string.category_all)
+    MusicCategory.ARTIST -> stringResource(R.string.category_artist)
+    MusicCategory.ALBUM -> stringResource(R.string.category_album)
 }
 
 // ==================== 本地音乐浏览（内嵌版，用于主界面） ====================
@@ -60,12 +66,14 @@ fun LocalMusicBrowser(
         }
     }
 
-    val artistGroups = remember(filteredTracks) {
-        filteredTracks.groupBy { it.artist.ifBlank { "未知艺术家" } }
+    val unknownArtist = stringResource(R.string.unknown_artist)
+    val unknownAlbum = stringResource(R.string.unknown_album)
+    val artistGroups = remember(filteredTracks, unknownArtist) {
+        filteredTracks.groupBy { it.artist.ifBlank { unknownArtist } }
             .toSortedMap()
     }
-    val albumGroups = remember(filteredTracks) {
-        filteredTracks.groupBy { it.album.ifBlank { "未知专辑" } }
+    val albumGroups = remember(filteredTracks, unknownAlbum) {
+        filteredTracks.groupBy { it.album.ifBlank { unknownAlbum } }
             .toSortedMap()
     }
 
@@ -91,7 +99,7 @@ fun LocalMusicBrowser(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_search),
-                        contentDescription = "搜索",
+                        contentDescription = stringResource(R.string.search),
                         modifier = Modifier
                             .padding(start = 16.dp, end = 4.dp)
                             .size(20.dp)
@@ -112,7 +120,7 @@ fun LocalMusicBrowser(
                             Box(modifier = Modifier.fillMaxWidth()) {
                                 if (searchQuery.isEmpty()) {
                                     Text(
-                                        text = "搜索本地音乐...",
+                                        text = stringResource(R.string.search_local_music),
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -125,7 +133,7 @@ fun LocalMusicBrowser(
                         IconButton(onClick = { searchQuery = "" }) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_clear),
-                                contentDescription = "清除"
+                                contentDescription = stringResource(R.string.clear_search)
                             )
                         }
                     }
@@ -142,7 +150,7 @@ fun LocalMusicBrowser(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
                     Spacer(Modifier.height(12.dp))
-                    Text("正在扫描本地音乐...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.scanning_music), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else if (tracks.isEmpty()) {
@@ -164,7 +172,7 @@ fun LocalMusicBrowser(
                     )
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "未找到本地音乐文件",
+                        stringResource(R.string.no_music_found),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
@@ -195,7 +203,7 @@ fun LocalMusicBrowser(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(Modifier.width(4.dp))
-                                    Text(category.label)
+                                    Text(category.displayName())
                                 }
                             }
                         )
@@ -214,7 +222,7 @@ fun LocalMusicBrowser(
                         coverCache = coverCache,
                         // 按曲目所属的歌手分组传递上下文
                         onTrackClick = { track ->
-                            val artistName = track.artist.ifBlank { "未知艺术家" }
+                            val artistName = track.artist.ifBlank { unknownArtist }
                             val contextTracks = artistGroups[artistName] ?: listOf(track)
                             onTrackClick(track, contextTracks)
                         }
@@ -224,7 +232,7 @@ fun LocalMusicBrowser(
                         coverCache = coverCache,
                         // 按曲目所属的专辑分组传递上下文
                         onTrackClick = { track ->
-                            val albumName = track.album.ifBlank { "未知专辑" }
+                            val albumName = track.album.ifBlank { unknownAlbum }
                             val contextTracks = albumGroups[albumName] ?: listOf(track)
                             onTrackClick(track, contextTracks)
                         }
@@ -247,12 +255,12 @@ fun AllSongsTab(
     onTrackClick: (Track) -> Unit = {}
 ) {
     if (tracks.isEmpty()) {
-        EmptyState("暂无音乐")
+        EmptyState(stringResource(R.string.no_music))
     } else {
         LazyColumn(modifier = Modifier.fillMaxWidth()) {
             item {
                 Text(
-                    text = "共 ${tracks.size} 首歌曲",
+                    text = stringResource(R.string.track_count, tracks.size),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -278,12 +286,12 @@ fun ArtistTab(
     onTrackClick: (Track) -> Unit = {}
 ) {
     if (artistGroups.isEmpty()) {
-        EmptyState("暂无音乐")
+        EmptyState(stringResource(R.string.no_music))
     } else {
         LazyColumn(modifier = Modifier.fillMaxWidth()) {
             item {
                 Text(
-                    text = "共 ${artistGroups.size} 位歌手",
+                    text = stringResource(R.string.artist_count, artistGroups.size),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -352,14 +360,14 @@ fun ArtistSection(
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "${tracks.size} 首歌曲",
+                        text = stringResource(R.string.song_count, tracks.size),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Icon(
                     painter = painterResource(R.drawable.ic_arrow_back),
-                    contentDescription = if (expanded) "收起" else "展开",
+                    contentDescription = if (expanded) stringResource(R.string.collapse) else stringResource(R.string.expand),
                     modifier = Modifier
                         .size(18.dp)
                         .rotate(if (expanded) 270f else 90f),
@@ -391,13 +399,13 @@ fun AlbumTab(
     onTrackClick: (Track) -> Unit = {}
 ) {
     if (albumGroups.isEmpty()) {
-        EmptyState("暂无音乐")
+        EmptyState(stringResource(R.string.no_music))
     } else {
         LazyColumn(modifier = Modifier.fillMaxWidth()) {
             val sortedAlbums = albumGroups.entries.toList()
             item {
                 Text(
-                    text = "共 ${sortedAlbums.size} 张专辑",
+                    text = stringResource(R.string.album_count, sortedAlbums.size),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -454,14 +462,14 @@ fun AlbumSection(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${tracks.size} 首歌曲",
+                        text = stringResource(R.string.song_count, tracks.size),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Icon(
                     painter = painterResource(R.drawable.ic_arrow_back),
-                    contentDescription = if (expanded) "收起" else "展开",
+                    contentDescription = if (expanded) stringResource(R.string.collapse) else stringResource(R.string.expand),
                     modifier = Modifier
                         .size(18.dp)
                         .rotate(if (expanded) 270f else 90f),

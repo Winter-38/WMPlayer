@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -31,6 +32,8 @@ fun SettingsScreen(
     settings: SettingsManager,
     onBack: () -> Unit,
     onRescan: () -> Unit = {},
+    onSettingChanged: () -> Unit = {},
+    onSetPlayMode: (com.winter.muplayer.model.PlayMode) -> Unit = {},
     cacheInfo: CacheInfo = CacheInfo()
 ) {
     var showLog by remember { mutableStateOf(false) }
@@ -59,18 +62,18 @@ fun SettingsScreen(
             IconButton(onClick = onBack) {
                 Icon(
                     painterResource(R.drawable.ic_arrow_back),
-                    contentDescription = "返回"
+                    contentDescription = stringResource(R.string.back)
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                "设置",
+                stringResource(R.string.settings),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { showLog = !showLog }) {
-                Text(if (showLog) "隐藏日志" else "调试日志")
+                Text(if (showLog) stringResource(R.string.hide_log) else stringResource(R.string.debug_log))
             }
         }
 
@@ -82,46 +85,48 @@ fun SettingsScreen(
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
                 // ========== 播放设置 ==========
-                item { SectionHeader("播放设置") }
+                item { SectionHeader(stringResource(R.string.section_playback)) }
 
-                item { PlayModeSetting(settings) }
+                item { PlayModeSetting(settings, onSettingChanged, onSetPlayMode) }
                 item { CrossfadeSetting(settings) }
                 item { AudioFocusSetting(settings) }
 
                 // ========== 显示主题 ==========
-                item { SectionHeader("显示主题") }
+                item { SectionHeader(stringResource(R.string.section_display)) }
 
-                item { ThemeModeSetting(settings) }
+                item { ThemeModeSetting(settings, onSettingChanged) }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    item { DynamicColorSetting(settings) }
+                    item { DynamicColorSetting(settings, onSettingChanged) }
                 }
-                item { BlurBackgroundSetting(settings) }
+                item { BlurBackgroundSetting(settings, onSettingChanged) }
 
                 // ========== 音乐扫描 ==========
-                item { SectionHeader("音乐扫描") }
+                item { SectionHeader(stringResource(R.string.section_scan)) }
 
                 item { AutoScanSetting(settings) }
                 item {
                     SettingsActionItem(
-                        title = "重新扫描音乐库",
+                        title = stringResource(R.string.rescan_music),
                         subtitle = null,
-                        onClick = onRescan
+                        onClick = onRescan,
+                        showArrow = false
                     )
                 }
 
                 // ========== 存储 ==========
-                item { SectionHeader("存储") }
+                item { SectionHeader(stringResource(R.string.section_storage)) }
 
                 item {
                     SettingsActionItem(
-                        title = "清除专辑封面缓存",
-                        subtitle = "缓存大小：${cacheInfo.formattedSize}",
-                        onClick = cacheInfo.onClearCache
+                        title = stringResource(R.string.clear_cache),
+                        subtitle = stringResource(R.string.cache_size_prefix, cacheInfo.formattedSize),
+                        onClick = cacheInfo.onClearCache,
+                        showArrow = false
                     )
                 }
 
                 // ========== 关于 ==========
-                item { SectionHeader("关于") }
+                item { SectionHeader(stringResource(R.string.section_about)) }
 
                 item { AboutSection() }
             }
@@ -144,26 +149,30 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
-private fun PlayModeSetting(settings: SettingsManager) {
+private fun PlayModeSetting(
+    settings: SettingsManager,
+    onSettingChanged: () -> Unit,
+    onSetPlayMode: (com.winter.muplayer.model.PlayMode) -> Unit
+) {
     var currentMode by remember { mutableStateOf(settings.defaultPlayMode) }
     var expanded by remember { mutableStateOf(false) }
     val modeLabel = when (currentMode) {
-        com.winter.muplayer.model.PlayMode.SEQUENTIAL -> "顺序播放"
-        com.winter.muplayer.model.PlayMode.SHUFFLE -> "随机播放"
-        com.winter.muplayer.model.PlayMode.SINGLE_LOOP -> "单曲循环"
-        com.winter.muplayer.model.PlayMode.REPEAT_ALL -> "列表循环"
+        com.winter.muplayer.model.PlayMode.SEQUENTIAL -> stringResource(R.string.sequential)
+        com.winter.muplayer.model.PlayMode.SHUFFLE -> stringResource(R.string.shuffle)
+        com.winter.muplayer.model.PlayMode.SINGLE_LOOP -> stringResource(R.string.single_loop)
+        com.winter.muplayer.model.PlayMode.REPEAT_ALL -> stringResource(R.string.repeat_all)
     }
     val allModes = com.winter.muplayer.model.PlayMode.entries
     val modeNames = mapOf(
-        com.winter.muplayer.model.PlayMode.SEQUENTIAL to "顺序播放",
-        com.winter.muplayer.model.PlayMode.SHUFFLE to "随机播放",
-        com.winter.muplayer.model.PlayMode.SINGLE_LOOP to "单曲循环",
-        com.winter.muplayer.model.PlayMode.REPEAT_ALL to "列表循环"
+        com.winter.muplayer.model.PlayMode.SEQUENTIAL to stringResource(R.string.sequential),
+        com.winter.muplayer.model.PlayMode.SHUFFLE to stringResource(R.string.shuffle),
+        com.winter.muplayer.model.PlayMode.SINGLE_LOOP to stringResource(R.string.single_loop),
+        com.winter.muplayer.model.PlayMode.REPEAT_ALL to stringResource(R.string.repeat_all)
     )
 
     SettingsClickItem(
-        title = "默认播放模式",
-        subtitle = "启动后默认使用「$modeLabel」模式",
+        title = stringResource(R.string.default_play_mode),
+        subtitle = stringResource(R.string.default_mode_subtitle, modeLabel),
         onClick = { expanded = true }
     )
     if (expanded) {
@@ -180,7 +189,7 @@ private fun PlayModeSetting(settings: SettingsManager) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        "默认播放模式",
+                        stringResource(R.string.default_play_mode),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 16.dp)
@@ -202,6 +211,8 @@ private fun PlayModeSetting(settings: SettingsManager) {
                                 onClick = {
                                     currentMode = mode
                                     settings.defaultPlayMode = mode
+                                    onSetPlayMode(mode)
+                                    onSettingChanged()
                                     expanded = false
                                 }
                             )
@@ -214,7 +225,7 @@ private fun PlayModeSetting(settings: SettingsManager) {
                     }
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = { expanded = false }) {
-                        Text("关闭")
+                        Text(stringResource(R.string.close))
                     }
                 }
             }
@@ -226,7 +237,7 @@ private fun PlayModeSetting(settings: SettingsManager) {
 private fun CrossfadeSetting(settings: SettingsManager) {
     var duration by remember { mutableStateOf(settings.crossfadeDurationMs) }
     val label = when {
-        duration == 0 -> "关闭"
+        duration == 0 -> stringResource(R.string.off)
         duration < 1000 -> "${duration}ms"
         else -> "${duration / 1000}s"
     }
@@ -237,7 +248,7 @@ private fun CrossfadeSetting(settings: SettingsManager) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("跨fade 淡入淡出", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.crossfade), style = MaterialTheme.typography.bodyLarge)
             Text(label, style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary)
         }
@@ -251,9 +262,9 @@ private fun CrossfadeSetting(settings: SettingsManager) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("关闭", style = MaterialTheme.typography.labelSmall,
+            Text(stringResource(R.string.off), style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("5s", style = MaterialTheme.typography.labelSmall,
+            Text(stringResource(R.string.crossfade_5s), style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -263,31 +274,31 @@ private fun CrossfadeSetting(settings: SettingsManager) {
 private fun AudioFocusSetting(settings: SettingsManager) {
     var duck by remember { mutableStateOf(settings.audioFocusDuck) }
     SettingsSwitchItem(
-        title = "音频焦点处理",
-        subtitle = if (duck) "来消息时降低音量" else "来消息时暂停播放",
+        title = stringResource(R.string.audio_focus),
+        subtitle = if (duck) stringResource(R.string.audio_duck) else stringResource(R.string.audio_pause),
         checked = duck,
         onCheckedChange = { duck = it; settings.audioFocusDuck = it }
     )
 }
 
 @Composable
-private fun ThemeModeSetting(settings: SettingsManager) {
+private fun ThemeModeSetting(settings: SettingsManager, onSettingChanged: () -> Unit) {
     var mode by remember { mutableStateOf(settings.themeMode) }
     var expanded by remember { mutableStateOf(false) }
     val modeLabel = when (mode) {
-        SettingsManager.ThemeMode.SYSTEM -> "跟随系统"
-        SettingsManager.ThemeMode.LIGHT -> "亮色"
-        SettingsManager.ThemeMode.DARK -> "暗色"
+        SettingsManager.ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
+        SettingsManager.ThemeMode.LIGHT -> stringResource(R.string.theme_light)
+        SettingsManager.ThemeMode.DARK -> stringResource(R.string.theme_dark)
     }
     val allModes = SettingsManager.ThemeMode.entries
     val modeNames = mapOf(
-        SettingsManager.ThemeMode.SYSTEM to "跟随系统",
-        SettingsManager.ThemeMode.LIGHT to "亮色",
-        SettingsManager.ThemeMode.DARK to "暗色"
+        SettingsManager.ThemeMode.SYSTEM to stringResource(R.string.theme_system),
+        SettingsManager.ThemeMode.LIGHT to stringResource(R.string.theme_light),
+        SettingsManager.ThemeMode.DARK to stringResource(R.string.theme_dark)
     )
 
     SettingsClickItem(
-        title = "主题模式",
+        title = stringResource(R.string.theme_mode),
         subtitle = modeLabel,
         onClick = { expanded = true }
     )
@@ -305,7 +316,7 @@ private fun ThemeModeSetting(settings: SettingsManager) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        "主题模式",
+                        stringResource(R.string.theme_mode),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 16.dp)
@@ -317,6 +328,7 @@ private fun ThemeModeSetting(settings: SettingsManager) {
                                 .clickable {
                                     mode = item
                                     settings.themeMode = item
+                                    onSettingChanged()
                                     expanded = false
                                 }
                                 .padding(vertical = 4.dp),
@@ -339,7 +351,7 @@ private fun ThemeModeSetting(settings: SettingsManager) {
                     }
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = { expanded = false }) {
-                        Text("关闭")
+                        Text(stringResource(R.string.close))
                     }
                 }
             }
@@ -348,24 +360,24 @@ private fun ThemeModeSetting(settings: SettingsManager) {
 }
 
 @Composable
-private fun DynamicColorSetting(settings: SettingsManager) {
+private fun DynamicColorSetting(settings: SettingsManager, onSettingChanged: () -> Unit) {
     var enabled by remember { mutableStateOf(settings.dynamicColorEnabled) }
     SettingsSwitchItem(
-        title = "动态取色",
-        subtitle = "使用壁纸颜色生成主题（Android 12+）",
+        title = stringResource(R.string.dynamic_color),
+        subtitle = stringResource(R.string.dynamic_color_subtitle),
         checked = enabled,
-        onCheckedChange = { enabled = it; settings.dynamicColorEnabled = it }
+        onCheckedChange = { enabled = it; settings.dynamicColorEnabled = it; onSettingChanged() }
     )
 }
 
 @Composable
-private fun BlurBackgroundSetting(settings: SettingsManager) {
+private fun BlurBackgroundSetting(settings: SettingsManager, onSettingChanged: () -> Unit) {
     var enabled by remember { mutableStateOf(settings.blurBackground) }
     SettingsSwitchItem(
-        title = "封面模糊背景",
-        subtitle = "全屏播放时封面图模糊作为背景",
+        title = stringResource(R.string.blur_background),
+        subtitle = stringResource(R.string.blur_background_subtitle),
         checked = enabled,
-        onCheckedChange = { enabled = it; settings.blurBackground = it }
+        onCheckedChange = { enabled = it; settings.blurBackground = it; onSettingChanged() }
     )
 }
 
@@ -373,8 +385,8 @@ private fun BlurBackgroundSetting(settings: SettingsManager) {
 private fun AutoScanSetting(settings: SettingsManager) {
     var enabled by remember { mutableStateOf(settings.autoScanOnStart) }
     SettingsSwitchItem(
-        title = "启动时自动扫描",
-        subtitle = "打开应用后自动扫描本地音乐文件",
+        title = stringResource(R.string.auto_scan),
+        subtitle = stringResource(R.string.auto_scan_subtitle),
         checked = enabled,
         onCheckedChange = { enabled = it; settings.autoScanOnStart = it }
     )
@@ -387,14 +399,14 @@ private fun AboutSection() {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        InfoRow("应用名称", "WinterMuPlayer")
-        InfoRow("版本号", "0.5.4-SNAPSHOT")
-        InfoRow("包名", "com.winter.muplayer")
-        InfoRow("编译 SDK", "API ${Build.VERSION.SDK_INT}")
-        InfoRow("设备", "${Build.MANUFACTURER} ${Build.MODEL}")
+        InfoRow(stringResource(R.string.label_app_name), "WinterMuPlayer")
+        InfoRow(stringResource(R.string.label_version), "0.5.4-SNAPSHOT")
+        InfoRow(stringResource(R.string.label_package), "com.winter.muplayer")
+        InfoRow(stringResource(R.string.label_compile_sdk), "API ${Build.VERSION.SDK_INT}")
+        InfoRow(stringResource(R.string.label_device), "${Build.MANUFACTURER} ${Build.MODEL}")
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "基于 Shadow 插件框架 · Jetpack Compose + Material3",
+            text = stringResource(R.string.framework_info),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
             modifier = Modifier.padding(top = 4.dp)
@@ -457,7 +469,8 @@ private fun SettingsClickItem(
 private fun SettingsActionItem(
     title: String,
     subtitle: String?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    showArrow: Boolean = true
 ) {
     Surface(
         onClick = onClick,
@@ -476,12 +489,14 @@ private fun SettingsActionItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Icon(
-                painterResource(R.drawable.ic_arrow_back),
-                contentDescription = "执行",
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
+            if (showArrow) {
+                Icon(
+                    painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = stringResource(R.string.execute),
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
 }
@@ -504,7 +519,7 @@ private fun InfoRow(label: String, value: String) {
 // ==================== 缓存信息数据类 ====================
 
 data class CacheInfo(
-    val formattedSize: String = "未知",
+    val formattedSize: String = "—",
     val onClearCache: () -> Unit = {}
 )
 
@@ -535,7 +550,7 @@ private fun DebugLogPanel() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "应用日志 (${entries.size})",
+                stringResource(R.string.app_log_title, entries.size),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold
             )
@@ -543,7 +558,7 @@ private fun DebugLogPanel() {
                 AppLogger.clear()
                 entries.clear()
             }) {
-                Text("清空", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.clear_log), color = MaterialTheme.colorScheme.error)
             }
         }
 

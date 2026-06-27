@@ -102,6 +102,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -134,7 +135,7 @@ class MusicUIActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (!granted) {
-            Toast.makeText(this, "需要音频权限才能读取本地音乐", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.audio_permission_required), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -149,10 +150,11 @@ class MusicUIActivity : ComponentActivity() {
 
         setContent {
             val settings = musicPlayerCore.settings
-            val themeMode = settings.themeMode
-            val dynamicColor = settings.dynamicColorEnabled
+            var currentThemeMode by remember { mutableStateOf(settings.themeMode) }
+            var currentDynamicColor by remember { mutableStateOf(settings.dynamicColorEnabled) }
+            var currentBlurBg by remember { mutableStateOf(settings.blurBackground) }
 
-            val isDark = when (themeMode) {
+            val isDark = when (currentThemeMode) {
                 com.winter.muplayer.core.SettingsManager.ThemeMode.SYSTEM ->
                     isSystemInDarkTheme()
                 com.winter.muplayer.core.SettingsManager.ThemeMode.DARK -> true
@@ -161,13 +163,22 @@ class MusicUIActivity : ComponentActivity() {
 
             AppTheme(
                 darkTheme = isDark,
-                dynamicColor = dynamicColor
+                dynamicColor = currentDynamicColor
             ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MusicPlayerApp(musicPlayerCore = musicPlayerCore)
+                    MusicPlayerApp(
+                        musicPlayerCore = musicPlayerCore,
+                        blurBackground = currentBlurBg,
+                        onSettingChanged = {
+                            currentThemeMode = settings.themeMode
+                            currentDynamicColor = settings.dynamicColorEnabled
+                            currentBlurBg = settings.blurBackground
+                        },
+                        onSetPlayMode = musicPlayerCore::setPlayMode
+                    )
                 }
             }
         }
@@ -178,7 +189,12 @@ class MusicUIActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
+fun MusicPlayerApp(
+    musicPlayerCore: MusicPlayerCore,
+    blurBackground: Boolean = false,
+    onSettingChanged: () -> Unit = {},
+    onSetPlayMode: (com.winter.muplayer.model.PlayMode) -> Unit = {}
+) {
     val playerState by musicPlayerCore.playerState.collectAsState()
     val playMode by musicPlayerCore.playMode.collectAsState()
     val queue by musicPlayerCore.queueManager.queue.collectAsState()
@@ -199,6 +215,9 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
     // 本地音乐列表
     var localMusicList by remember { mutableStateOf<List<Track>>(emptyList()) }
     var isLoadingLocal by remember { mutableStateOf(false) }
+
+    // 封面缓存大小（响应式，清除后自动刷新）
+    var coverCacheSize by remember { mutableStateOf(computeCoverCacheSize(context)) }
 
     // 插件 UI Slot（Shadow 架构：插件通过 IPlugin.getSlotView 提供 View，
     // PluginWidget 用于 Compose 原生渲染——此处为兼容旧 Slot 机制保留）
@@ -224,27 +243,16 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
         if (!musicPlayerCore.settings.autoScanOnStart) return@LaunchedEffect
         isLoadingLocal = true
         val tracks = withContext(Dispatchers.IO) { scanner.scan() }
-        for (track in tracks) {
-            if (track.albumId > 0L || coverCache.containsKey(track.id)) continue
-            withContext(Dispatchers.IO) {
-                val filePath = track.uri.removePrefix("file://")
-                val retriever = android.media.MediaMetadataRetriever()
-                try {
-                    retriever.setDataSource(filePath)
-                    val picture = retriever.embeddedPicture ?: return@withContext
-                    val cacheDir = File(context.cacheDir, "covers")
-                    cacheDir.mkdirs()
-                    val coverFile = File(cacheDir, "${track.id}.jpg")
-                    coverFile.writeBytes(picture)
-                    coverCache[track.id] = coverFile.absolutePath
-                } catch (_: Exception) {
-                } finally {
-                    retriever.release()
-                }
-            }
-        }
+        // 先显示歌单，不阻塞
         localMusicList = tracks
         isLoadingLocal = false
+        // 封面缓存放后台慢慢存，不拖慢首次显示
+        launch(Dispatchers.IO) {
+            cacheCoverFiles(context, tracks, coverCache)
+            withContext(Dispatchers.Main) {
+                coverCacheSize = computeCoverCacheSize(context)
+            }
+        }
     }
 
     // ==================== 布局 ====================
@@ -266,46 +274,29 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                         scanner.invalidateCache()
                         isLoadingLocal = true
                         val tracks = withContext(Dispatchers.IO) { scanner.scan() }
-                        for (track in tracks) {
-                            if (track.albumId > 0L || coverCache.containsKey(track.id)) continue
-                            withContext(Dispatchers.IO) {
-                                val filePath = track.uri.removePrefix("file://")
-                                val retriever = android.media.MediaMetadataRetriever()
-                                try {
-                                    retriever.setDataSource(filePath)
-                                    val picture = retriever.embeddedPicture ?: return@withContext
-                                    val cacheDir = File(context.cacheDir, "covers")
-                                    cacheDir.mkdirs()
-                                    val coverFile = File(cacheDir, "${track.id}.jpg")
-                                    coverFile.writeBytes(picture)
-                                    coverCache[track.id] = coverFile.absolutePath
-                                } catch (_: Exception) {
-                                } finally {
-                                    retriever.release()
-                                }
-                            }
-                        }
+                        // 先显示歌单
                         localMusicList = tracks
                         isLoadingLocal = false
+                        // 封面缓存放后台
+                        launch(Dispatchers.IO) {
+                            cacheCoverFiles(context, tracks, coverCache)
+                            withContext(Dispatchers.Main) {
+                                coverCacheSize = computeCoverCacheSize(context)
+                            }
+                        }
                     }
                 },
                 cacheInfo = com.winter.muplayer.base_ui.CacheInfo(
-                    formattedSize = run {
-                        val dir = File(context.cacheDir, "covers")
-                        if (!dir.exists()) return@run "0 KB"
-                        val bytes = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-                        when {
-                            bytes < 1024 -> "0 KB"
-                            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-                            else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
-                        }
-                    },
+                    formattedSize = coverCacheSize,
                     onClearCache = {
                         coverCache.clear()
-                        context.cacheDir.deleteRecursively()
-                        context.cacheDir.mkdirs()
+                        val coversDir = File(context.cacheDir, "covers")
+                        if (coversDir.exists()) coversDir.deleteRecursively()
+                        coverCacheSize = "0 KB"
                     }
-                )
+                ),
+                onSettingChanged = onSettingChanged,
+                onSetPlayMode = onSetPlayMode
             )
         }
 
@@ -332,7 +323,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                 TopAppBar(
                     title = {
                         Text(
-                            text = "WMPlayer",
+                            text = stringResource(R.string.app_name),
                             fontWeight = FontWeight.Bold
                         )
                     },
@@ -343,13 +334,13 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
                         IconButton(onClick = { showPluginManager = true }) {
                             Icon(
                                 painterResource(R.drawable.ic_extendsion),
-                                contentDescription = "插件管理"
+                                contentDescription = stringResource(R.string.plugin_manager)
                             )
                         }
                         IconButton(onClick = { showSettings = true }) {
                             Icon(
                                 painterResource(R.drawable.ic_settings),
-                                contentDescription = "设置"
+                                contentDescription = stringResource(R.string.settings)
                             )
                         }
                     }
@@ -393,7 +384,7 @@ fun MusicPlayerApp(musicPlayerCore: MusicPlayerCore) {
             playMode = playMode,
             coverCache = coverCache,
             slotWidgets = slotWidgets["below_controls"] ?: emptyList(),
-            blurBackground = musicPlayerCore.settings.blurBackground,
+            blurBackground = blurBackground,
             onPlay = musicPlayerCore::play,
             onPause = musicPlayerCore::pause,
             onNext = musicPlayerCore::playNext,
@@ -490,7 +481,7 @@ fun MiniPlayerBar(
             // 歌曲信息
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = currentTrack?.title ?: "未在播放",
+                    text = currentTrack?.title ?: stringResource(R.string.not_playing),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
@@ -511,7 +502,7 @@ fun MiniPlayerBar(
             IconButton(onClick = onPrevious) {
                 Icon(
                     painterResource(R.drawable.ic_skip_previous),
-                    contentDescription = "上一首",
+                    contentDescription = stringResource(R.string.previous),
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(36.dp)
                 )
@@ -531,7 +522,7 @@ fun MiniPlayerBar(
                     Icon(
                         painter = if (isPlaying) painterResource(R.drawable.ic_pause)
                         else painterResource(R.drawable.ic_play),
-                        contentDescription = if (isPlaying) "暂停" else "播放",
+                        contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(28.dp)
                     )
@@ -542,7 +533,7 @@ fun MiniPlayerBar(
             IconButton(onClick = onNext) {
                 Icon(
                     painterResource(R.drawable.ic_skip_next),
-                    contentDescription = "下一首",
+                    contentDescription = stringResource(R.string.next),
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(36.dp)
                 )
@@ -552,7 +543,7 @@ fun MiniPlayerBar(
             IconButton(onClick = onShowQueue) {
                 Icon(
                     painterResource(R.drawable.ic_playlist_music),
-                    contentDescription = "播放列表",
+                    contentDescription = stringResource(R.string.playlist),
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(26.dp)
                 )
@@ -740,7 +731,7 @@ fun FullPlayerPanel(
                 ) {
                     // ====== 歌曲信息 ======
                     Text(
-                        text = currentTrack?.title ?: "未选择曲目",
+                        text = currentTrack?.title ?: stringResource(R.string.no_track_selected),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -842,7 +833,7 @@ fun FullPlayerPanel(
                         IconButton(onClick = onShowQueue) {
                             Icon(
                                 painterResource(R.drawable.ic_playlist_music),
-                                contentDescription = "播放列表",
+                                contentDescription = stringResource(R.string.playlist),
                                 modifier = Modifier.size(32.dp),
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
@@ -903,14 +894,14 @@ fun QueueSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "当前播放",
+                    text = stringResource(R.string.current_playlist),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
                 if (queue.isNotEmpty()) {
                     TextButton(onClick = onClearQueue) {
-                        Text("清空")
+                        Text(stringResource(R.string.clear))
                     }
                 }
             }
@@ -1091,7 +1082,7 @@ fun TrackInfoMarquee(
 ) {
     if (track == null) {
         Text(
-            text = "未选择曲目",
+            text = stringResource(R.string.no_track_selected),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1316,7 +1307,7 @@ fun PlayPauseButton(
         } else {
             Icon(
                 painter = if (isPlaying) painterResource(R.drawable.ic_pause) else painterResource(R.drawable.ic_play),
-                contentDescription = if (isPlaying) "暂停" else "播放",
+                contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
                 modifier = Modifier.size(40.dp),
                 tint = MaterialTheme.colorScheme.onPrimary
             )
@@ -1339,10 +1330,10 @@ fun PlayModeButton(
     }
 
     val label = when (playMode) {
-        PlayMode.SEQUENTIAL -> "顺序"
-        PlayMode.SHUFFLE -> "随机"
-        PlayMode.SINGLE_LOOP -> "单曲"
-        PlayMode.REPEAT_ALL -> "循环"
+        PlayMode.SEQUENTIAL -> stringResource(R.string.mode_sequential)
+        PlayMode.SHUFFLE -> stringResource(R.string.mode_shuffle)
+        PlayMode.SINGLE_LOOP -> stringResource(R.string.mode_single_loop)
+        PlayMode.REPEAT_ALL -> stringResource(R.string.mode_repeat_all)
     }
 
     IconButton(onClick = onClick) {
@@ -1405,7 +1396,7 @@ fun PlayQueueSection(
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text = "播放队列为空",
+                    text = stringResource(R.string.queue_empty),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
@@ -1605,7 +1596,7 @@ fun QueueTrackItem(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_delete),
-                        contentDescription = "删除",
+                        contentDescription = stringResource(R.string.delete),
                         tint = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.size(20.dp)
                     )
@@ -1628,7 +1619,7 @@ fun TrackDetailDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "曲目详情",
+                text = stringResource(R.string.track_detail),
                 fontWeight = FontWeight.Bold
             )
         },
@@ -1654,16 +1645,16 @@ fun TrackDetailDialog(
 
                 Spacer(Modifier.height(16.dp))
 
-                DetailItem("标题", track.title)
-                DetailItem("艺术家", track.artist)
-                DetailItem("专辑", track.album)
-                DetailItem("时长", formatDuration(track.duration))
-                DetailItem("文件路径", track.uri)
+                DetailItem(stringResource(R.string.label_title), track.title)
+                DetailItem(stringResource(R.string.label_artist), track.artist)
+                DetailItem(stringResource(R.string.label_album), track.album)
+                DetailItem(stringResource(R.string.label_duration), formatDuration(track.duration))
+                DetailItem(stringResource(R.string.label_file_path), track.uri)
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("关闭")
+                Text(stringResource(R.string.close))
             }
         },
         shape = RoundedCornerShape(24.dp)
@@ -1732,4 +1723,57 @@ private suspend fun loadCoverIfNeeded(
     }
 }
 
+// ==================== 辅助函数 ====================
 
+/**
+ * 后台缓存封面文件到磁盘。
+ * 在 IO 线程调用，每首歌存一个 .jpg 到 cache/covers/。
+ */
+private suspend fun cacheCoverFiles(
+    context: android.content.Context,
+    tracks: List<Track>,
+    coverCache: MutableMap<Long, String>
+) {
+    for (track in tracks) {
+        if (coverCache.containsKey(track.id)) continue
+        val cacheDir = java.io.File(context.cacheDir, "covers")
+        cacheDir.mkdirs()
+        val coverFile = java.io.File(cacheDir, "${track.id}.jpg")
+        try {
+            if (track.albumId > 0L) {
+                val albumArtUri = android.net.Uri.parse(
+                    "content://media/external/audio/albumart/${track.albumId}"
+                )
+                context.contentResolver.openInputStream(albumArtUri)?.use { input ->
+                    coverFile.outputStream().use { output -> input.copyTo(output) }
+                    coverCache[track.id] = coverFile.absolutePath
+                }
+            } else {
+                val filePath = track.uri.removePrefix("file://")
+                val retriever = android.media.MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(filePath)
+                    val picture = retriever.embeddedPicture ?: continue
+                    coverFile.writeBytes(picture)
+                    coverCache[track.id] = coverFile.absolutePath
+                } finally {
+                    retriever.release()
+                }
+            }
+        } catch (_: Exception) { }
+    }
+}
+
+/**
+ * 计算封面缓存目录的大小，返回人类可读的字符串。
+ */
+private fun computeCoverCacheSize(context: android.content.Context): String {
+    val dir = java.io.File(context.cacheDir, "covers")
+    if (!dir.exists()) return "0 KB"
+    val bytes = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    return when {
+        bytes < 1024 -> "0 KB"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
+    }
+}

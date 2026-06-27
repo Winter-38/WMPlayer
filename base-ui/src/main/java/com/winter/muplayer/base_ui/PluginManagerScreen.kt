@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,7 +53,7 @@ fun PluginManagerScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         // 通过 Shadow 宿主安装插件 APK
         shadowPluginHost.install(uri, autoLoad = true)
-        Toast.makeText(context, "插件安装中...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.installing_plugin), Toast.LENGTH_SHORT).show()
     }
 
     Column(
@@ -70,10 +71,10 @@ fun PluginManagerScreen(
                 IconButton(onClick = onBack) {
                     Icon(
                         painterResource(R.drawable.ic_arrow_back),
-                        contentDescription = "返回"
+                        contentDescription = stringResource(R.string.back)
                     )
                 }
-                Text("插件管理", style = MaterialTheme.typography.headlineSmall)
+                Text(stringResource(R.string.plugin_manager_title), style = MaterialTheme.typography.headlineSmall)
             }
             Row(
                 modifier = Modifier.padding(end = 4.dp),
@@ -88,7 +89,7 @@ fun PluginManagerScreen(
                     Icon(
                         if (isLoading) painterResource(R.drawable.ic_hourglass_top)
                         else painterResource(R.drawable.ic_refresh),
-                        contentDescription = "刷新"
+                        contentDescription = stringResource(R.string.refresh)
                     )
                 }
                 // 安装 APK 按钮
@@ -97,7 +98,7 @@ fun PluginManagerScreen(
                 }) {
                     Icon(painterResource(R.drawable.ic_add), contentDescription = null)
                     Spacer(Modifier.width(4.dp))
-                    Text("安装 APK")
+                    Text(stringResource(R.string.install_apk))
                 }
             }
         }
@@ -106,7 +107,7 @@ fun PluginManagerScreen(
 
         // 说明小提示
         Text(
-            "插件通过 Shadow 框架动态加载，无需系统安装。支持热插拔。",
+            stringResource(R.string.plugin_help),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 48.dp)
@@ -137,10 +138,10 @@ fun PluginManagerScreen(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text("暂无已安装的插件", style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.no_plugins), style = MaterialTheme.typography.bodyLarge)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "点击「安装 APK」从文件管理器选择插件文件",
+                        stringResource(R.string.install_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -153,7 +154,7 @@ fun PluginManagerScreen(
                         info = info,
                         onUninstall = {
                             shadowPluginHost.uninstall(info.metadata.id)
-                            Toast.makeText(context, "插件已卸载", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.plugin_uninstalled), Toast.LENGTH_SHORT).show()
                         }
                     )
                 }
@@ -214,7 +215,7 @@ private fun PluginCard(
                 if (metadata.permissions.isNotEmpty()) {
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        text = "权限: ${metadata.permissions.joinToString(", ")}",
+                        text = "${stringResource(R.string.permissions_prefix)} ${metadata.permissions.joinToString(", ")}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
@@ -225,7 +226,7 @@ private fun PluginCard(
             IconButton(onClick = onUninstall) {
                 Icon(
                     painterResource(R.drawable.ic_delete),
-                    contentDescription = "卸载",
+                    contentDescription = stringResource(R.string.uninstall),
                     tint = MaterialTheme.colorScheme.error
                 )
             }
