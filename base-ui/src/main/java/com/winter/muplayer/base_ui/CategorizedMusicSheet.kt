@@ -5,6 +5,9 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -14,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -71,26 +75,65 @@ fun LocalMusicBrowser(
     Column(modifier = Modifier.fillMaxSize()) {
         // ========== 搜索栏 ==========
         if (tracks.isNotEmpty()) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
+            val interactionSource = remember { MutableInteractionSource() }
+            val isFocused by interactionSource.collectIsFocusedAsState()
+
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp),
-                placeholder = { Text("搜索本地音乐...") },
-                leadingIcon = {
-                    Icon(painterResource(R.drawable.ic_search), contentDescription = "搜索")
-                },
-                trailingIcon = {
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(
+                    width = 2.5.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_search),
+                        contentDescription = "搜索",
+                        modifier = Modifier
+                            .padding(start = 16.dp, end = 4.dp)
+                            .size(20.dp)
+                    )
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 14.dp),
+                        singleLine = true,
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        interactionSource = interactionSource,
+                        decorationBox = { innerTextField ->
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "搜索本地音乐...",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { searchQuery = "" }) {
-                            Icon(painterResource(R.drawable.ic_clear), contentDescription = "清除")
+                            Icon(
+                                painter = painterResource(R.drawable.ic_clear),
+                                contentDescription = "清除"
+                            )
                         }
                     }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp)
-            )
+                }
+            }
         }
 
         if (isLoading && tracks.isEmpty()) {
