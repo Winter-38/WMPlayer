@@ -57,8 +57,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import com.winter.muplayer.base_ui.ui.theme.AppTheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.unit.dp
@@ -93,7 +93,6 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -102,9 +101,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -421,59 +417,23 @@ fun MusicPlayerApp(
                     enter = slideInVertically(animationSpec = tween(200)) { fullHeight -> -fullHeight / 2 },
                     exit = slideOutVertically(animationSpec = tween(0)) { fullHeight -> -fullHeight }
                 ) {
-                    Surface(
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(2.5.dp, color = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        placeholder = {
+                            Text(stringResource(R.string.search_local_music))
+                        },
+                        leadingIcon = {
                             Icon(
                                 painter = painterResource(R.drawable.ic_search),
                                 contentDescription = stringResource(R.string.search),
-                                modifier = Modifier
-                                    .padding(start = 16.dp, end = 4.dp)
-                                    .size(20.dp)
+                                modifier = Modifier.size(20.dp)
                             )
-                            val searchFocusRequester = remember { FocusRequester() }
-                            var wasFocused by remember { mutableStateOf(false) }
-                            LaunchedEffect(Unit) {
-                                searchFocusRequester.requestFocus()
-                            }
-                            BasicTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(vertical = 12.dp)
-                                    .focusRequester(searchFocusRequester)
-                                    .onFocusChanged { focusState ->
-                                        if (focusState.isFocused) {
-                                            wasFocused = true
-                                        } else if (wasFocused) {
-                                            showSearchBar = false
-                                        }
-                                    },
-                                singleLine = true,
-                                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                    color = MaterialTheme.colorScheme.onSurface
-                                ),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                decorationBox = { innerTextField ->
-                                    if (searchQuery.isEmpty()) {
-                                        Text(
-                                            text = stringResource(R.string.search_local_music),
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    innerTextField()
-                                }
-                            )
+                        },
+                        trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
                                 IconButton(onClick = { searchQuery = "" }) {
                                     Icon(
@@ -482,8 +442,18 @@ fun MusicPlayerApp(
                                     )
                                 }
                             }
-                        }
-                    }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.primary,
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        ),
+                        textStyle = MaterialTheme.typography.bodyLarge
+                    )
                 }
 
                 Box(modifier = Modifier.weight(1f)) {
