@@ -65,6 +65,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
@@ -95,6 +99,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -414,15 +421,28 @@ fun MusicPlayerApp(
                 // ====== 搜索栏（从 TopAppBar 搜索图标弹出） ======
                 AnimatedVisibility(
                     visible = showSearchBar,
-                    enter = slideInVertically(animationSpec = tween(200)) { fullHeight -> -fullHeight / 2 },
-                    exit = slideOutVertically(animationSpec = tween(0)) { fullHeight -> -fullHeight }
+                    enter = fadeIn(animationSpec = tween(200)) + expandVertically(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(150)) + shrinkVertically(animationSpec = tween(150))
                 ) {
+                    val searchFocusRequester = remember { FocusRequester() }
+                    var wasFocused by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        searchFocusRequester.requestFocus()
+                    }
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .focusRequester(searchFocusRequester)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) {
+                                    wasFocused = true
+                                } else if (wasFocused) {
+                                    showSearchBar = false
+                                }
+                            },
                         placeholder = {
                             Text(stringResource(R.string.search_local_music))
                         },
