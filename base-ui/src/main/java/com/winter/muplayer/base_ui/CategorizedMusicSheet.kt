@@ -63,14 +63,31 @@ fun LocalMusicBrowser(
     searchQuery: String = ""
 ) {
     var selectedCategory by remember { mutableStateOf(MusicCategory.ALL) }
+    var sortField by remember { mutableStateOf(0) } // 0=名称 1=时长 2=大小 3=日期 4=类型
+    var sortAsc by remember { mutableStateOf(true) }
+    val sortNames = listOf(
+        stringResource(R.string.sort_name),
+        stringResource(R.string.sort_duration),
+        stringResource(R.string.sort_file_size),
+        stringResource(R.string.sort_date_added),
+        stringResource(R.string.sort_file_type)
+    )
 
-    val filteredTracks = remember(tracks, searchQuery) {
-        if (searchQuery.isBlank()) tracks
+    val filteredTracks = remember(tracks, searchQuery, sortField, sortAsc) {
+        val base = if (searchQuery.isBlank()) tracks
         else tracks.filter { track ->
             track.title.contains(searchQuery, ignoreCase = true) ||
                     track.artist.contains(searchQuery, ignoreCase = true) ||
                     track.album.contains(searchQuery, ignoreCase = true)
         }
+        val sorted = when (sortField) {
+            1 -> base.sortedBy { it.duration }
+            2 -> base.sortedBy { it.fileSize }
+            3 -> base.sortedBy { it.dateAdded }
+            4 -> base.sortedBy { it.fileType }
+            else -> base.sortedBy { it.title }
+        }
+        if (sortAsc) sorted else sorted.reversed()
     }
 
     val unknownArtist = stringResource(R.string.unknown_artist)
@@ -125,32 +142,71 @@ fun LocalMusicBrowser(
         } else {
             // ========== Tab 栏 + 列表 ==========
             Column(modifier = Modifier.fillMaxSize()) {
-                TabRow(
-                    selectedTabIndex = selectedCategory.ordinal,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.primary
-                ) {
-                    MusicCategory.entries.forEach { category ->
-                        Tab(
-                            selected = selectedCategory == category,
-                            onClick = { selectedCategory = category },
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    val icon = when (category) {
-                                        MusicCategory.ALL -> R.drawable.ic_library_music
-                                        MusicCategory.ARTIST -> R.drawable.ic_person
-                                        MusicCategory.ALBUM -> R.drawable.ic_disc
+                Box {
+                    TabRow(
+                        selectedTabIndex = selectedCategory.ordinal,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        MusicCategory.entries.forEach { category ->
+                            Tab(
+                                selected = selectedCategory == category,
+                                onClick = { selectedCategory = category },
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        val icon = when (category) {
+                                            MusicCategory.ALL -> R.drawable.ic_library_music
+                                            MusicCategory.ARTIST -> R.drawable.ic_person
+                                            MusicCategory.ALBUM -> R.drawable.ic_disc
+                                        }
+                                        Icon(
+                                            painterResource(icon),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(category.displayName())
                                     }
-                                    Icon(
-                                        painterResource(icon),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(category.displayName())
                                 }
-                            }
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.track_count, filteredTracks.size),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    var showSortMenu by remember { mutableStateOf(false) }
+                    Box {
+                        Text(
+                            text = stringResource(R.string.sort_label),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clickable { showSortMenu = true }
                         )
+                        DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                            sortNames.forEachIndexed { i, name ->
+                                DropdownMenuItem(
+                                    text = { Text(name, fontWeight = if (sortField == i) FontWeight.Bold else FontWeight.Normal) },
+                                    onClick = { sortField = i; showSortMenu = false },
+                                    trailingIcon = { if (sortField == i) Text("✓", fontWeight = FontWeight.Bold) }
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text(if (sortAsc) stringResource(R.string.sort_asc) else stringResource(R.string.sort_desc), fontWeight = FontWeight.Bold) },
+                                onClick = { sortAsc = !sortAsc; showSortMenu = false }
+                            )
+                        }
                     }
                 }
 
@@ -202,14 +258,6 @@ fun AllSongsTab(
         EmptyState(stringResource(R.string.no_music))
     } else {
         LazyColumn(modifier = Modifier.fillMaxWidth()) {
-            item {
-                Text(
-                    text = stringResource(R.string.track_count, tracks.size),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                )
-            }
             items(items = tracks, key = { "${it.id}" }) { track ->
                 TrackRow(
                     track = track,

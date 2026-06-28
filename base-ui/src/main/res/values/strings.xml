@@ -63,6 +63,14 @@
     <string name="song_count">%d 首歌曲</string>
     <string name="collapse">收起</string>
     <string name="expand">展开</string>
+    <string name="sort_label">排序方式</string>
+    <string name="sort_asc">↑ 升序</string>
+    <string name="sort_desc">↓ 降序</string>
+    <string name="sort_name">名称</string>
+    <string name="sort_duration">时长</string>
+    <string name="sort_file_size">大小</string>
+    <string name="sort_date_added">日期</string>
+    <string name="sort_file_type">类型</string>
 
     <!-- ==================== 设置界面 ==================== -->
     <!-- 分区标题 -->

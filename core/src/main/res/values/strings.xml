@@ -3,4 +3,5 @@
     <string name="playback_channel_name">播放控制</string>
     <string name="playback_channel_desc">显示播放控制通知</string>
     <string name="notification_playing">正在播放</string>
+    <string name="app_name">WMPlayer</string>
 </resources>

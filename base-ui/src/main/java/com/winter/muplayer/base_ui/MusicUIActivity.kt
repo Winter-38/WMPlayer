@@ -322,7 +322,7 @@ fun MusicPlayerApp(
         AnimatedVisibility(
             visible = showSettings,
             enter = slideInHorizontally(animationSpec = tween(200)) { it },
-            exit = slideOutHorizontally(animationSpec = tween(200)) { it }
+            exit = slideOutHorizontally(animationSpec = tween(200)) { -it }
         ) {
             BackHandler { showSettings = false }
             val settings = musicPlayerCore.settings
@@ -358,7 +358,6 @@ fun MusicPlayerApp(
                 onSettingChanged = onSettingChanged,
                 onSetPlayMode = onSetPlayMode,
                 onShowPluginManager = {
-                    showSettings = false
                     showPluginManager = true
                 },
                 onCrossfadeChange = { ms ->
@@ -376,13 +375,11 @@ fun MusicPlayerApp(
         ) {
             BackHandler {
                 showPluginManager = false
-                showSettings = true
             }
             PluginManagerScreen(
                 shadowPluginHost = musicPlayerCore.shadowPluginHost,
                 onBack = {
                     showPluginManager = false
-                    showSettings = true
                 }
             )
         }

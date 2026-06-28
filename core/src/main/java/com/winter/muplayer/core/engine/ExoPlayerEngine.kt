@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -193,7 +194,16 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
                     error = null
                 )
             }
-            val mediaItem = MediaItem.fromUri(track.uri)
+            val mediaItem = MediaItem.Builder()
+                .setUri(track.uri)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setAlbumTitle(track.album)
+                        .build()
+                )
+                .build()
             val isPlaying = exoPlayer.playWhenReady && exoPlayer.playbackState == Player.STATE_READY
             if (crossfadeMs > 0 && isPlaying) {
                 // 手动音量交叉淡入淡出

@@ -72,7 +72,8 @@ class LocalMusicScanner(
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.SIZE
+            MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.DATE_ADDED
         )
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
         val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
@@ -91,6 +92,8 @@ class LocalMusicScanner(
             val colDuration = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
             val colData = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
             val colAlbumId = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
+            val colSize = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
+            val colDateAdded = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
 
             while (cursor.moveToNext()) {
                 val data = cursor.getString(colData) ?: continue
@@ -122,7 +125,9 @@ class LocalMusicScanner(
                         album = album,
                         duration = duration,
                         uri = uri,
-                        albumId = albumId
+                        albumId = albumId,
+                        fileSize = cursor.getLong(colSize).coerceAtLeast(0L),
+                        dateAdded = cursor.getLong(colDateAdded).coerceAtLeast(0L)
                     )
                 )
             }
