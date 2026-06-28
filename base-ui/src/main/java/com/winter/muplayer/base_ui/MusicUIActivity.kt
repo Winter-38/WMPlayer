@@ -1,5 +1,6 @@
 package com.winter.muplayer.base_ui
 
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -730,6 +731,38 @@ fun FullPlayerPanel(
 
     val surfaceColor = MaterialTheme.colorScheme.surface
 
+    // ====== 自适应按钮颜色（封面模糊背景时根据封面亮度决定） ======
+    val currentContext = LocalContext.current
+    var coverBitmap by remember(blurBackground, currentTrack?.id) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(blurBackground, currentTrack?.id) {
+        if (blurBackground && currentTrack != null) {
+            val uri = getAlbumArtUri(currentTrack, coverCache)
+            if (uri != null) {
+                val loader = coil.ImageLoader(currentContext)
+                val request = ImageRequest.Builder(currentContext)
+                    .data(uri)
+                    .size(100, 100)
+                    .crossfade(false)
+                    .build()
+                val result = loader.execute(request)
+                val drawable = result.drawable
+                if (drawable is android.graphics.drawable.BitmapDrawable) {
+                    coverBitmap = drawable.bitmap
+                }
+            }
+        } else {
+            coverBitmap = null
+        }
+    }
+    val defaultOnSurface = MaterialTheme.colorScheme.onSurface
+    val adaptiveTint = remember(coverBitmap, defaultOnSurface) {
+        if (blurBackground) {
+            coverBitmap?.let { computeAdaptiveTint(it) } ?: defaultOnSurface
+        } else {
+            defaultOnSurface
+        }
+    }
+
     BackHandler(onBack = performDismiss)
 
     Box(
@@ -874,14 +907,15 @@ fun FullPlayerPanel(
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        color = adaptiveTint
                     )
 
                     if (currentTrack != null) {
                         Text(
                             text = "${currentTrack.artist} • ${currentTrack.album}",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = adaptiveTint.copy(alpha = 0.7f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 4.dp)
@@ -943,14 +977,16 @@ fun FullPlayerPanel(
                                     PlayMode.REPEAT_ALL -> PlayMode.SEQUENTIAL
                                 }
                                 onPlayModeChange(newMode)
-                            }
+                            },
+                            tint = adaptiveTint
                         )
 
                         // 上一首
                         ControlButton(
                             icon = painterResource(R.drawable.ic_skip_previous),
                             onClick = onPrevious,
-                            size = 48.dp
+                            size = 48.dp,
+                            tint = adaptiveTint
                         )
 
                         // 播放/暂停
@@ -958,14 +994,17 @@ fun FullPlayerPanel(
                             isPlaying = isPlaying,
                             isLoading = playerState.state == PlayerState.LOADING,
                             onPlay = onPlay,
-                            onPause = onPause
+                            onPause = onPause,
+                            containerColor = adaptiveTint.copy(alpha = 0.2f),
+                            iconTint = adaptiveTint
                         )
 
                         // 下一首
                         ControlButton(
                             icon = painterResource(R.drawable.ic_skip_next),
                             onClick = onNext,
-                            size = 48.dp
+                            size = 48.dp,
+                            tint = adaptiveTint
                         )
 
                         // 播放列表
@@ -974,7 +1013,7 @@ fun FullPlayerPanel(
                                 painterResource(R.drawable.ic_playlist_music),
                                 contentDescription = stringResource(R.string.playlist),
                                 modifier = Modifier.size(32.dp),
-                                tint = MaterialTheme.colorScheme.onSurface
+                                tint = adaptiveTint
                             )
                         }
                     }
@@ -1414,7 +1453,9 @@ fun PlayPauseButton(
     isPlaying: Boolean,
     isLoading: Boolean,
     onPlay: () -> Unit,
-    onPause: () -> Unit
+    onPause: () -> Unit,
+    containerColor: Color = MaterialTheme.colorScheme.primary,
+    iconTint: Color = MaterialTheme.colorScheme.onPrimary
 ) {
     var isPressed by remember { mutableStateOf(false) }
     val scale = remember { Animatable(1f) }
@@ -1441,14 +1482,14 @@ fun PlayPauseButton(
             .scale(scale.value)
             .shadow(8.dp, CircleShape)
             .background(
-                color = MaterialTheme.colorScheme.primary,
+                color = containerColor,
                 shape = CircleShape
             )
     ) {
         if (isLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(32.dp),
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = iconTint,
                 strokeWidth = 3.dp
             )
         } else {
@@ -1456,7 +1497,7 @@ fun PlayPauseButton(
                 painter = if (isPlaying) painterResource(R.drawable.ic_pause) else painterResource(R.drawable.ic_play),
                 contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
                 modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.onPrimary
+                tint = iconTint
             )
         }
     }
@@ -1467,7 +1508,8 @@ fun PlayPauseButton(
 @Composable
 fun PlayModeButton(
     playMode: PlayMode,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    tint: Color = MaterialTheme.colorScheme.onSurface
 ) {
     val icon = when (playMode) {
         PlayMode.SEQUENTIAL -> painterResource(R.drawable.ic_shuffle_disabled)
@@ -1488,7 +1530,7 @@ fun PlayModeButton(
             painter = icon,
             contentDescription = label,
             modifier = Modifier.size(28.dp),
-            tint = MaterialTheme.colorScheme.onSurface
+            tint = tint
         )
     }
 }
@@ -1499,7 +1541,8 @@ fun PlayModeButton(
 fun ControlButton(
     icon: Painter,
     onClick: () -> Unit,
-    size: androidx.compose.ui.unit.Dp = 48.dp
+    size: androidx.compose.ui.unit.Dp = 48.dp,
+    tint: Color = MaterialTheme.colorScheme.onSurface
 ) {
     IconButton(
         onClick = onClick,
@@ -1509,7 +1552,7 @@ fun ControlButton(
             painter = icon,
             contentDescription = null,
             modifier = Modifier.size(size * 0.65f),
-            tint = MaterialTheme.colorScheme.onSurface
+            tint = tint
         )
     }
 }
@@ -1923,4 +1966,32 @@ private fun computeCoverCacheSize(context: android.content.Context): String {
         bytes < 1024 * 1024 -> "${bytes / 1024} KB"
         else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
     }
+}
+
+/**
+ * 从封面 Bitmap 采样像素，计算平均亮度，返回配适的按钮图标颜色。
+ * 暗封面 → 白色，亮封面 → 深灰色，确保按钮在模糊背景上清晰可见。
+ */
+private fun computeAdaptiveTint(bitmap: Bitmap): Color {
+    // HARDWARE 位图不支持 getPixel()，先复制为软件可读格式
+    val readable = if (bitmap.config == Bitmap.Config.HARDWARE) {
+        bitmap.copy(Bitmap.Config.ARGB_8888, false)
+    } else {
+        bitmap
+    } ?: return Color(0xFF1A1A1A)
+
+    var sumR = 0f; var sumG = 0f; var sumB = 0f; var count = 0
+    val step = maxOf(1, minOf(readable.width, readable.height) / 8)
+    for (x in 0 until readable.width step step) {
+        for (y in 0 until readable.height step step) {
+            val pixel = readable.getPixel(x, y)
+            sumR += android.graphics.Color.red(pixel)
+            sumG += android.graphics.Color.green(pixel)
+            sumB += android.graphics.Color.blue(pixel)
+            count++
+        }
+    }
+    if (count == 0) return Color(0xFF1A1A1A)
+    val avgLuminance = (0.299f * sumR + 0.587f * sumG + 0.114f * sumB) / (count * 255f)
+    return if (avgLuminance > 0.55f) Color(0xFF1A1A1A) else Color.White
 }
