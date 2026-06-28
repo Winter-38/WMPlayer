@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -13,6 +15,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.winter.muplayer.model.PlayerState
 import com.winter.muplayer.model.PlayerStateData
 import com.winter.muplayer.model.Track
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,37 +31,51 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
     private val appContext = context.applicationContext
     private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-    private val exoPlayer: ExoPlayer = ExoPlayer.Builder(appContext).build()
+    val exoPlayer: ExoPlayer = ExoPlayer.Builder(appContext).build()
 
     private val _playerState = MutableStateFlow(PlayerStateData())
     override val playerState: StateFlow<PlayerStateData> = _playerState.asStateFlow()
 
     private var onTrackEndListener: (() -> Unit)? = null
     private var crossfadeMs: Int = 0
+    /** 跨fade 用的协程作用域 */
+    private val crossfadeScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var duckOnFocusLoss: Boolean = false
     private var hasAudioFocus = false
+    /** 在音频焦点临时丢失前是否正在播放，用于焦点恢复后自动续播 */
+    private var wasPlayingBeforeFocusLoss = false
 
     // AudioFocus 回调
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 hasAudioFocus = false
+                wasPlayingBeforeFocusLoss = false // 永久丢失，不续播
                 exoPlayer.pause()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                exoPlayer.pause()
+                if (duckOnFocusLoss) {
+                    exoPlayer.volume = 0.3f
+                } else {
+                    wasPlayingBeforeFocusLoss = exoPlayer.playWhenReady
+                    exoPlayer.pause()
+                }
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 if (duckOnFocusLoss) {
                     exoPlayer.volume = 0.3f
                 } else {
+                    wasPlayingBeforeFocusLoss = exoPlayer.playWhenReady
                     exoPlayer.pause()
                 }
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
                 hasAudioFocus = true
                 exoPlayer.volume = 1.0f
-                if (exoPlayer.playWhenReady) exoPlayer.play()
+                if (wasPlayingBeforeFocusLoss) {
+                    exoPlayer.play()
+                }
+                wasPlayingBeforeFocusLoss = false
             }
         }
     }
@@ -173,8 +194,34 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
                 )
             }
             val mediaItem = MediaItem.fromUri(track.uri)
-            exoPlayer.setMediaItem(mediaItem)
-            exoPlayer.prepare()
+            val isPlaying = exoPlayer.playWhenReady && exoPlayer.playbackState == Player.STATE_READY
+            if (crossfadeMs > 0 && isPlaying) {
+                // 手动音量交叉淡入淡出
+                val currentVolume = exoPlayer.volume
+                crossfadeScope.launch {
+                    // 旧曲淡出
+                    val fadeOutSteps = (crossfadeMs / 50f).toInt().coerceAtLeast(1)
+                    for (i in fadeOutSteps downTo 0) {
+                        exoPlayer.volume = currentVolume * i / fadeOutSteps
+                        delay(50)
+                    }
+                    // 切换曲目
+                    exoPlayer.stop()
+                    exoPlayer.setMediaItem(mediaItem)
+                    exoPlayer.prepare()
+                    exoPlayer.playWhenReady = true
+                    exoPlayer.volume = 0f
+                    // 新曲淡入
+                    val fadeInSteps = (crossfadeMs / 50f).toInt().coerceAtLeast(1)
+                    for (i in 0..fadeInSteps) {
+                        exoPlayer.volume = currentVolume * i / fadeInSteps
+                        delay(50)
+                    }
+                }
+            } else {
+                exoPlayer.setMediaItem(mediaItem)
+                exoPlayer.prepare()
+            }
         } catch (e: Exception) {
             _playerState.update {
                 it.copy(

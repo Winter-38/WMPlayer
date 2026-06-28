@@ -35,7 +35,8 @@ fun SettingsScreen(
     onSettingChanged: () -> Unit = {},
     onSetPlayMode: (com.winter.muplayer.model.PlayMode) -> Unit = {},
     cacheInfo: CacheInfo = CacheInfo(),
-    onShowPluginManager: () -> Unit = {}
+    onShowPluginManager: () -> Unit = {},
+    onCrossfadeChange: (Int) -> Unit = {}
 ) {
     var showLog by remember { mutableStateOf(false) }
     val logEntries by remember { mutableStateOf(AppLogger.getEntries()) }
@@ -89,7 +90,7 @@ fun SettingsScreen(
                 item { SectionHeader(stringResource(R.string.section_playback)) }
 
                 item { PlayModeSetting(settings, onSettingChanged, onSetPlayMode) }
-                item { CrossfadeSetting(settings) }
+                item { CrossfadeSetting(settings, onCrossfadeChange) }
                 item { AudioFocusSetting(settings) }
 
                 // ========== 显示主题 ==========
@@ -247,7 +248,7 @@ private fun PlayModeSetting(
 }
 
 @Composable
-private fun CrossfadeSetting(settings: SettingsManager) {
+private fun CrossfadeSetting(settings: SettingsManager, onCrossfadeChange: (Int) -> Unit = {}) {
     var duration by remember { mutableStateOf(settings.crossfadeDurationMs) }
     val label = when {
         duration == 0 -> stringResource(R.string.off)
@@ -268,7 +269,8 @@ private fun CrossfadeSetting(settings: SettingsManager) {
         Slider(
             value = duration.toFloat() / 5000f,
             onValueChange = { duration = (it * 5000).toInt()
-                settings.crossfadeDurationMs = duration },
+                settings.crossfadeDurationMs = duration
+                onCrossfadeChange(duration) },
             modifier = Modifier.fillMaxWidth()
         )
         Row(

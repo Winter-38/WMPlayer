@@ -360,6 +360,10 @@ fun MusicPlayerApp(
                 onShowPluginManager = {
                     showSettings = false
                     showPluginManager = true
+                },
+                onCrossfadeChange = { ms ->
+                    (musicPlayerCore.engine as? com.winter.muplayer.core.engine.ExoPlayerEngine)
+                        ?.setCrossfadeDuration(ms)
                 }
             )
         }
@@ -937,7 +941,7 @@ fun FullPlayerPanel(
                             colors = SliderDefaults.colors(
                                 thumbColor = MaterialTheme.colorScheme.primary,
                                 activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
                             )
                         )
 
@@ -1371,7 +1375,7 @@ fun PlayerProgressBar(
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
             )
         )
 
@@ -1480,7 +1484,6 @@ fun PlayPauseButton(
         modifier = Modifier
             .size(72.dp)
             .scale(scale.value)
-            .shadow(8.dp, CircleShape)
             .background(
                 color = containerColor,
                 shape = CircleShape
@@ -1974,7 +1977,8 @@ private fun computeCoverCacheSize(context: android.content.Context): String {
  */
 private fun computeAdaptiveTint(bitmap: Bitmap): Color {
     // HARDWARE 位图不支持 getPixel()，先复制为软件可读格式
-    val readable = if (bitmap.config == Bitmap.Config.HARDWARE) {
+    val isHardware = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bitmap.config == Bitmap.Config.HARDWARE
+    val readable = if (isHardware) {
         bitmap.copy(Bitmap.Config.ARGB_8888, false)
     } else {
         bitmap

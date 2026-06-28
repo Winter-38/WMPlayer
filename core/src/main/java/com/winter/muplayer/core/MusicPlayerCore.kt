@@ -59,7 +59,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
     val playlistManager = PlaylistManager(context)
 
     /** 这是播放引擎，干活的是它 */
-    private val engine: PlayerEngine = ExoPlayerEngine(context)
+    val engine: PlayerEngine = ExoPlayerEngine(context)
 
     /** 进度追踪器，每隔一会儿就问引擎「播到哪了」 */
     private val progressTracker = ProgressTracker(scope, engine)
@@ -145,10 +145,15 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
         }
     }
 
+    /** 用于后台服务的 applicationContext */
+    private val appContextForBg: android.content.Context = context
+
     /** 播放！如果还没准备好会自动先准备 */
     override fun play() {
         AppLogger.i("Player", "play")
         if (isReleased) return
+        // 启动前台服务，确保后台不被杀
+        MusicPlaybackService.start(appContextForBg)
         scope.launch {
             engineMutex.withLock {
                 val currentTrack = queueManager.getCurrentTrack() ?: return@withLock
@@ -189,6 +194,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
     /** 完全停下来 */
     override fun stop() {
         if (isReleased) return
+        MusicPlaybackService.stop(appContextForBg)
         scope.launch {
             engineMutex.withLock {
                 progressTracker.stop()
@@ -370,16 +376,15 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable, IPl
                     }
                 } else {
                     // 队列非空：将整个上下文列表按顺序插入到当前播放之后
-                    val insertBase = queueManager.currentIndex.value + 1
-                    // 检查队列中是否已包含 batch 的完整序列，避免重复插入
                     val queueIds = queueManager.queue.value.map { it.track.id }
                     val batchIds = batch.map { it.id }
                     if (!queueIds.containsSlice(batchIds)) {
                         queueManager.enqueueNextAll(batch)
                     }
-                    val offsetInBatch = batch.indexOfFirst { it.id == track.id }
-                    if (offsetInBatch >= 0) {
-                        queueManager.setCurrentIndex(insertBase + offsetInBatch)
+                    // 在队列中找到目标曲目的实际位置（不依赖 insertBase 假设）
+                    val targetIndex = queueManager.queue.value.indexOfFirst { it.track.id == track.id }
+                    if (targetIndex >= 0) {
+                        queueManager.setCurrentIndex(targetIndex)
                     }
                     val currentTrack = queueManager.getCurrentTrack()
                     if (currentTrack != null) {
