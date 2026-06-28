@@ -5,6 +5,9 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- 允许查询已安装的插件 APK（API 30+ 包可见性） -->
     <queries>
@@ -32,10 +35,16 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <service
+            android:name="com.winter.muplayer.core.MusicPlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
         <activity
             android:name="com.winter.muplayer.base_ui.MusicUIActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.WinterMuPlayer">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

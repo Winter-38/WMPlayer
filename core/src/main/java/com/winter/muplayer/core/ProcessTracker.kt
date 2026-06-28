@@ -1,6 +1,6 @@
 package com.winter.muplayer.core
 
-import com.winter.muplayer.engine.PlayerEngine
+import com.winter.muplayer.core.engine.PlayerEngine
 import com.winter.muplayer.model.PlayerState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -8,11 +8,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-/**
- * 播放进度的「小闹钟」～
- * 它会不停地问播放器「现在播到哪了？」，然后把进度信息告诉 UI。
- * 播放的时候就每秒问好几次，暂停了就停下来歇口气。
- */
 class ProgressTracker(
     private val scope: CoroutineScope,
     private val engine: PlayerEngine
@@ -38,7 +33,7 @@ class ProgressTracker(
                     }
                     PlayerState.PAUSED -> {
                         stopProgressUpdates()
-                        // 暂停的时候更新一次当前的进度，让 UI 显示正确的数值
+
                         _progressState.update {
                             ProgressData(
                                 progress = engine.getCurrentPosition(),
@@ -53,7 +48,7 @@ class ProgressTracker(
                         }
                     }
                     else -> {
-                        // 加载中……先不更新进度
+
                     }
                 }
             }
@@ -76,7 +71,6 @@ class ProgressTracker(
                         duration = engine.getDuration()
                     )
                 }
-                // 每 250 毫秒问一次，不会太频繁也不会漏掉～
                 delay(250L)
             }
         }

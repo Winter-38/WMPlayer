@@ -13,5 +13,8 @@ enum class PlayMode {
     SHUFFLE,
 
     /** 单曲循环，这一首歌我可以听一百遍！ */
-    SINGLE_LOOP
+    SINGLE_LOOP,
+
+    /** 列表循环～播完最后一首自动从头再来一遍 */
+    REPEAT_ALL
 }

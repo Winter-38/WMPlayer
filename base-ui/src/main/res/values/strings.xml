@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 全局通用 ==================== -->
+    <string name="app_name">WMPlayer</string>
+    <string name="back">返回</string>
+    <string name="close">关闭</string>
+    <string name="clear">清空</string>
+    <string name="delete">删除</string>
+    <string name="settings">设置</string>
+    <string name="play">播放</string>
+    <string name="pause">暂停</string>
+    <string name="previous">上一首</string>
+    <string name="next">下一首</string>
+    <string name="playlist">播放列表</string>
+    <string name="refresh">刷新</string>
+    <string name="uninstall">卸载</string>
+    <string name="execute">执行</string>
+    <string name="unknown">未知</string>
+    <string name="off">关闭</string>
+
+    <!-- ==================== 播放器界面 ==================== -->
+    <string name="plugin_manager">插件管理</string>
+    <string name="not_playing">未在播放</string>
+    <string name="no_track_selected">未选择曲目</string>
+    <string name="current_playlist">当前播放</string>
+    <string name="queue_empty">播放队列为空</string>
+    <string name="track_detail">曲目详情</string>
+    <string name="search">搜索</string>
+
+    <!-- 播放模式 -->
+    <string name="mode_sequential">顺序</string>
+    <string name="mode_shuffle">随机</string>
+    <string name="mode_single_loop">单曲</string>
+    <string name="mode_repeat_all">循环</string>
+    <string name="sequential">顺序播放</string>
+    <string name="shuffle">随机播放</string>
+    <string name="single_loop">单曲循环</string>
+    <string name="repeat_all">列表循环</string>
+
+    <!-- 曲目详情标签 -->
+    <string name="label_title">标题</string>
+    <string name="label_artist">艺术家</string>
+    <string name="label_album">专辑</string>
+    <string name="label_duration">时长</string>
+    <string name="label_file_path">文件路径</string>
+
+    <!-- 未知回退文字 -->
+    <string name="unknown_artist">未知艺术家</string>
+    <string name="unknown_album">未知专辑</string>
+
+    <!-- ==================== 音乐浏览 ==================== -->
+    <string name="category_all">全部</string>
+    <string name="category_artist">歌手</string>
+    <string name="category_album">专辑</string>
+    <string name="search_local_music">搜索本地音乐...</string>
+    <string name="clear_search">清除</string>
+    <string name="scanning_music">正在扫描本地音乐...</string>
+    <string name="no_music_found">未找到本地音乐文件</string>
+    <string name="no_music">暂无音乐</string>
+    <string name="track_count">共 %d 首歌曲</string>
+    <string name="artist_count">共 %d 位歌手</string>
+    <string name="album_count">共 %d 张专辑</string>
+    <string name="song_count">%d 首歌曲</string>
+    <string name="collapse">收起</string>
+    <string name="expand">展开</string>
+    <string name="sort_label">排序方式</string>
+    <string name="sort_asc">↑ 升序</string>
+    <string name="sort_desc">↓ 降序</string>
+    <string name="sort_name">名称</string>
+    <string name="sort_duration">时长</string>
+    <string name="sort_file_size">大小</string>
+    <string name="sort_date_added">日期</string>
+    <string name="sort_file_type">类型</string>
+
+    <!-- ==================== 设置界面 ==================== -->
+    <!-- 分区标题 -->
+    <string name="section_playback">播放设置</string>
+    <string name="section_display">显示主题</string>
+    <string name="section_scan">音乐扫描</string>
+    <string name="section_storage">存储</string>
+    <string name="section_extensions">扩展</string>
+    <string name="section_about">关于</string>
+
+    <!-- 播放设置 -->
+    <string name="default_play_mode">默认播放模式</string>
+    <string name="default_mode_subtitle">默认使用「%s」模式</string>
+    <string name="crossfade">音频淡入淡出</string>
+    <string name="crossfade_5s">5s</string>
+    <string name="audio_focus">音频焦点处理</string>
+    <string name="audio_duck">来消息时降低音量</string>
+    <string name="audio_pause">来消息时暂停播放</string>
+
+    <!-- 显示主题 -->
+    <string name="theme_mode">主题模式</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">亮色</string>
+    <string name="theme_dark">暗色</string>
+    <string name="dynamic_color">动态取色</string>
+    <string name="dynamic_color_subtitle">使用壁纸颜色生成主题（Android 12+）</string>
+    <string name="blur_background">封面模糊背景</string>
+    <string name="blur_background_subtitle">全屏播放时封面图模糊作为背景</string>
+
+    <!-- 音乐扫描 -->
+    <string name="auto_scan">启动时自动扫描</string>
+    <string name="auto_scan_subtitle">打开应用后自动扫描本地音乐文件</string>
+    <string name="rescan_music">重新扫描音乐库</string>
+
+    <!-- 存储 -->
+    <string name="clear_cache">清除专辑封面缓存</string>
+    <string name="cache_size_prefix">缓存大小：%s</string>
+
+    <!-- 关于 -->
+    <string name="label_app_name">应用名称</string>
+    <string name="label_version">版本号</string>
+    <string name="label_package">包名</string>
+    <string name="label_compile_sdk">编译 SDK</string>
+    <string name="label_device">设备</string>
+    <string name="framework_info">基于 Shadow 插件框架 · Jetpack Compose + Material3</string>
+
+    <!-- 日志面板 -->
+    <string name="debug_log">调试日志</string>
+    <string name="hide_log">隐藏日志</string>
+    <string name="app_log_title">应用日志（%d）</string>
+    <string name="clear_log">清空</string>
+
+    <!-- ==================== 插件管理 ==================== -->
+    <string name="plugin_manager_title">插件管理</string>
+    <string name="installing_plugin">插件安装中…</string>
+    <string name="install_apk">安装 APK</string>
+    <string name="plugin_help">插件通过 Shadow 框架动态加载，无需系统安装。支持热插拔。</string>
+    <string name="no_plugins">暂无已安装的插件</string>
+    <string name="install_hint">点击「安装 APK」从文件管理器选择插件文件</string>
+    <string name="plugin_uninstalled">插件已卸载</string>
+    <string name="permissions_prefix">权限:</string>
+    <string name="audio_permission_required">需要音频权限才能读取本地音乐</string>
+</resources>

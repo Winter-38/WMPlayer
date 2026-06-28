@@ -1,10 +1,12 @@
+// plugin-runtime：合并后的 Shadow 插件框架模块
+// 包含 Runtime（接口定义）+ Loader（DexClassLoader 加载）
+// + Manager（插件生命周期管理）三层。
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.compose)
 }
 
 android {
-    namespace = "com.winter.muplayer.base_ui"
+    namespace = "com.winter.muplayer.plugin"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -35,19 +37,9 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.material)
     implementation(project(":model"))
-    implementation(project(":core"))
-    implementation(project(":plugin"))
-    implementation("androidx.compose.material3:material3:1.3.0")
-    implementation("androidx.compose.foundation:foundation:1.7.0")
-    implementation("androidx.compose.ui:ui:1.7.0")
-    implementation("androidx.activity:activity-compose:1.9.0")
-    implementation("androidx.compose.animation:animation-android:1.11.3")
-    implementation("androidx.compose.animation:animation-core-android:1.11.3")
-    implementation("io.coil-kt:coil-compose:2.6.0")
-    implementation(libs.androidx.compose.animation)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

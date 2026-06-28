@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">WMPlayer</string>
+    <string name="auto_scan">启动时自动扫描</string>
 </resources>
