@@ -70,6 +70,7 @@
     <string name="section_display">显示主题</string>
     <string name="section_scan">音乐扫描</string>
     <string name="section_storage">存储</string>
+    <string name="section_extensions">扩展</string>
     <string name="section_about">关于</string>
 
     <!-- 播放设置 -->

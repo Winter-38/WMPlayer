@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -15,14 +14,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import android.widget.EditText
+import android.text.TextWatcher
+import android.text.Editable
+import android.os.Build
+import android.text.InputType
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.winter.muplayer.model.Track
@@ -52,10 +58,11 @@ fun LocalMusicBrowser(
     isLoading: Boolean,
     coverCache: Map<Long, String>,
     /** @param onTrackClick (点击的曲目, 当前分类上下文曲目列表) */
-    onTrackClick: (track: Track, contextTracks: List<Track>) -> Unit = { _, _ -> }
+    onTrackClick: (track: Track, contextTracks: List<Track>) -> Unit = { _, _ -> },
+    /** 外部传入的搜索关键词（搜索栏已移至 TopAppBar） */
+    searchQuery: String = ""
 ) {
     var selectedCategory by remember { mutableStateOf(MusicCategory.ALL) }
-    var searchQuery by remember { mutableStateOf("") }
 
     val filteredTracks = remember(tracks, searchQuery) {
         if (searchQuery.isBlank()) tracks
@@ -78,69 +85,6 @@ fun LocalMusicBrowser(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // ========== 搜索栏 ==========
-        if (tracks.isNotEmpty()) {
-            val interactionSource = remember { MutableInteractionSource() }
-            val isFocused by interactionSource.collectIsFocusedAsState()
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(
-                    width = 2.5.dp,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_search),
-                        contentDescription = stringResource(R.string.search),
-                        modifier = Modifier
-                            .padding(start = 16.dp, end = 4.dp)
-                            .size(20.dp)
-                    )
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(vertical = 14.dp),
-                        singleLine = true,
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                        interactionSource = interactionSource,
-                        decorationBox = { innerTextField ->
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        text = stringResource(R.string.search_local_music),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        }
-                    )
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_clear),
-                                contentDescription = stringResource(R.string.clear_search)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
         if (isLoading && tracks.isEmpty()) {
             // 加载中
             Box(

@@ -57,6 +57,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.BorderStroke
 import com.winter.muplayer.base_ui.ui.theme.AppTheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.unit.dp
@@ -80,6 +82,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,6 +93,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -98,6 +102,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -154,6 +161,22 @@ class MusicUIActivity : ComponentActivity() {
             var currentDynamicColor by remember { mutableStateOf(settings.dynamicColorEnabled) }
             var currentBlurBg by remember { mutableStateOf(settings.blurBackground) }
 
+            // === DEBUG: 主题切换监控 ===
+            val currentDarkTheme = when (currentThemeMode) {
+                com.winter.muplayer.core.SettingsManager.ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                com.winter.muplayer.core.SettingsManager.ThemeMode.DARK -> true
+                com.winter.muplayer.core.SettingsManager.ThemeMode.LIGHT -> false
+            }
+            LaunchedEffect(currentThemeMode) {
+                android.util.Log.d("WMPlayer_Theme",
+                    "★★★ currentThemeMode=$currentThemeMode computed_dark=$currentDarkTheme")
+                com.winter.muplayer.core.AppLogger.i("DEBUG_THEME", "currentThemeMode=$currentThemeMode dark=$currentDarkTheme")
+            }
+            LaunchedEffect(currentDynamicColor) {
+                android.util.Log.d("WMPlayer_Theme", "★★★ currentDynamicColor=$currentDynamicColor")
+                com.winter.muplayer.core.AppLogger.i("DEBUG_THEME", "currentDynamicColor=$currentDynamicColor")
+            }
+
             AppTheme(
                 darkTheme = when (currentThemeMode) {
                     com.winter.muplayer.core.SettingsManager.ThemeMode.SYSTEM ->
@@ -167,16 +190,49 @@ class MusicUIActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MusicPlayerApp(
-                        musicPlayerCore = musicPlayerCore,
-                        blurBackground = currentBlurBg,
-                        onSettingChanged = {
-                            currentThemeMode = settings.themeMode
-                            currentDynamicColor = settings.dynamicColorEnabled
-                            currentBlurBg = settings.blurBackground
-                        },
-                        onSetPlayMode = musicPlayerCore::setPlayMode
-                    )
+                    Box(Modifier.fillMaxSize()) {
+                        MusicPlayerApp(
+                            musicPlayerCore = musicPlayerCore,
+                            blurBackground = currentBlurBg,
+                            onSettingChanged = {
+                                // === DEBUG: 记录 onSettingChanged 调用 ===
+                                android.util.Log.d("WMPlayer_Theme",
+                                    "★★★ onSettingChanged called: " +
+                                    "settings.themeMode=${settings.themeMode} " +
+                                    "old_currentThemeMode=$currentThemeMode " +
+                                    "old_currentDynamicColor=$currentDynamicColor")
+                                com.winter.muplayer.core.AppLogger.i("DEBUG_THEME",
+                                    "onSettingChanged: settings.themeMode=${settings.themeMode} " +
+                                    "before=(mode=$currentThemeMode dyn=$currentDynamicColor)")
+
+                                currentThemeMode = settings.themeMode
+                                currentDynamicColor = settings.dynamicColorEnabled
+                                currentBlurBg = settings.blurBackground
+
+                                com.winter.muplayer.core.AppLogger.i("DEBUG_THEME",
+                                    "onSettingChanged done: after=(mode=$currentThemeMode dyn=$currentDynamicColor)")
+                            },
+                            onSetPlayMode = musicPlayerCore::setPlayMode
+                        )
+
+                        // === DEBUG: 主题状态视觉覆盖层 ===
+                        Text(
+                            text = "THEME: mode=$currentThemeMode dark=${
+                                when (currentThemeMode) {
+                                    com.winter.muplayer.core.SettingsManager.ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                                    com.winter.muplayer.core.SettingsManager.ThemeMode.DARK -> true
+                                    com.winter.muplayer.core.SettingsManager.ThemeMode.LIGHT -> false
+                                }
+                            } dyn=$currentDynamicColor",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp),
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(4.dp)
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
         }
@@ -207,6 +263,8 @@ fun MusicPlayerApp(
     var showPluginManager by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showFullPlayer by remember { mutableStateOf(false) }
+    var showSearchBar by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
     var showTrackDetail by remember { mutableStateOf<Track?>(null) }
     var showQueue by remember { mutableStateOf(false) }
 
@@ -294,7 +352,11 @@ fun MusicPlayerApp(
                     }
                 ),
                 onSettingChanged = onSettingChanged,
-                onSetPlayMode = onSetPlayMode
+                onSetPlayMode = onSetPlayMode,
+                onShowPluginManager = {
+                    showSettings = false
+                    showPluginManager = true
+                }
             )
         }
 
@@ -304,10 +366,16 @@ fun MusicPlayerApp(
             enter = slideInHorizontally(animationSpec = tween(200)) { it },
             exit = slideOutHorizontally(animationSpec = tween(200)) { it }
         ) {
-            BackHandler { showPluginManager = false }
+            BackHandler {
+                showPluginManager = false
+                showSettings = true
+            }
             PluginManagerScreen(
                 shadowPluginHost = musicPlayerCore.shadowPluginHost,
-                onBack = { showPluginManager = false }
+                onBack = {
+                    showPluginManager = false
+                    showSettings = true
+                }
             )
         }
 
@@ -329,13 +397,16 @@ fun MusicPlayerApp(
                         containerColor = MaterialTheme.colorScheme.surface
                     ),
                     actions = {
-                        IconButton(onClick = { showPluginManager = true }) {
+                        IconButton(onClick = { showSearchBar = !showSearchBar }) {
                             Icon(
-                                painterResource(R.drawable.ic_extendsion),
-                                contentDescription = stringResource(R.string.plugin_manager)
+                                painterResource(R.drawable.ic_search),
+                                contentDescription = stringResource(R.string.search)
                             )
                         }
-                        IconButton(onClick = { showSettings = true }) {
+                        IconButton(onClick = {
+                            showSearchBar = false
+                            showSettings = true
+                        }) {
                             Icon(
                                 painterResource(R.drawable.ic_settings),
                                 contentDescription = stringResource(R.string.settings)
@@ -344,6 +415,77 @@ fun MusicPlayerApp(
                     }
                 )
 
+                // ====== 搜索栏（从 TopAppBar 搜索图标弹出） ======
+                AnimatedVisibility(
+                    visible = showSearchBar,
+                    enter = slideInVertically(animationSpec = tween(200)) { fullHeight -> -fullHeight / 2 },
+                    exit = slideOutVertically(animationSpec = tween(0)) { fullHeight -> -fullHeight }
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(2.5.dp, color = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_search),
+                                contentDescription = stringResource(R.string.search),
+                                modifier = Modifier
+                                    .padding(start = 16.dp, end = 4.dp)
+                                    .size(20.dp)
+                            )
+                            val searchFocusRequester = remember { FocusRequester() }
+                            var wasFocused by remember { mutableStateOf(false) }
+                            LaunchedEffect(Unit) {
+                                searchFocusRequester.requestFocus()
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(vertical = 12.dp)
+                                    .focusRequester(searchFocusRequester)
+                                    .onFocusChanged { focusState ->
+                                        if (focusState.isFocused) {
+                                            wasFocused = true
+                                        } else if (wasFocused) {
+                                            showSearchBar = false
+                                        }
+                                    },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                decorationBox = { innerTextField ->
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            text = stringResource(R.string.search_local_music),
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            )
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_clear),
+                                        contentDescription = stringResource(R.string.clear_search)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Box(modifier = Modifier.weight(1f)) {
                     LocalMusicBrowser(
                         tracks = localMusicList,
@@ -351,7 +493,8 @@ fun MusicPlayerApp(
                         coverCache = coverCache,
                         onTrackClick = { track, contextTracks ->
                             musicPlayerCore.playTrackSmart(track, contextTracks)
-                        }
+                        },
+                        searchQuery = searchQuery
                     )
                 }
 
@@ -433,6 +576,14 @@ fun MiniPlayerBar(
 ) {
     val currentTrack = playerState.currentTrack
     val isPlaying = playerState.state == PlayerState.PLAYING
+
+    // === DEBUG: 监控 MiniPlayerBar 重组 ===
+    val debugCs = MaterialTheme.colorScheme
+    SideEffect {
+        android.util.Log.d("WMPlayer_Theme",
+            "MiniPlayerBar recompose: surface=${debugCs.surface} primary=${debugCs.primary} " +
+            "bg=${debugCs.background} hash=${debugCs.hashCode()}")
+    }
 
     Card(
         modifier = Modifier
@@ -948,6 +1099,14 @@ fun PlayerControlCard(
 ) {
     val currentTrack = playerState.currentTrack
     val isPlaying = playerState.state == PlayerState.PLAYING
+
+    // === DEBUG: 监控 PlayerControlCard 重组 ===
+    val debugCs = MaterialTheme.colorScheme
+    SideEffect {
+        android.util.Log.d("WMPlayer_Theme",
+            "PlayerControlCard recompose: surface=${debugCs.surface} primary=${debugCs.primary} " +
+            "bg=${debugCs.background} hash=${debugCs.hashCode()}")
+    }
 
     Card(
         modifier = Modifier

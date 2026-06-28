@@ -24,7 +24,7 @@ import com.winter.muplayer.core.AppLogger
 import com.winter.muplayer.core.SettingsManager
 
 /**
- * 设置页面 — 包含播放、显示、扫描、关于等所有配置项。
+ * 设置页面——包含”播放“、”显示“、”扫描“、”关于“等所有配置项。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,7 +34,8 @@ fun SettingsScreen(
     onRescan: () -> Unit = {},
     onSettingChanged: () -> Unit = {},
     onSetPlayMode: (com.winter.muplayer.model.PlayMode) -> Unit = {},
-    cacheInfo: CacheInfo = CacheInfo()
+    cacheInfo: CacheInfo = CacheInfo(),
+    onShowPluginManager: () -> Unit = {}
 ) {
     var showLog by remember { mutableStateOf(false) }
     val logEntries by remember { mutableStateOf(AppLogger.getEntries()) }
@@ -122,6 +123,18 @@ fun SettingsScreen(
                         subtitle = stringResource(R.string.cache_size_prefix, cacheInfo.formattedSize),
                         onClick = cacheInfo.onClearCache,
                         showArrow = false
+                    )
+                }
+
+                // ========== 扩展 ==========
+                item { SectionHeader(stringResource(R.string.section_extensions)) }
+
+                item {
+                    SettingsActionItem(
+                        title = stringResource(R.string.plugin_manager),
+                        subtitle = null,
+                        onClick = onShowPluginManager,
+                        showArrow = true
                     )
                 }
 
@@ -296,7 +309,6 @@ private fun ThemeModeSetting(settings: SettingsManager, onSettingChanged: () -> 
         SettingsManager.ThemeMode.LIGHT to stringResource(R.string.theme_light),
         SettingsManager.ThemeMode.DARK to stringResource(R.string.theme_dark)
     )
-
     SettingsClickItem(
         title = stringResource(R.string.theme_mode),
         subtitle = modeLabel,
@@ -326,6 +338,11 @@ private fun ThemeModeSetting(settings: SettingsManager, onSettingChanged: () -> 
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
+                                    // === DEBUG ===
+                                    android.util.Log.d("WMPlayer_Theme",
+                                        "ThemeMode Row click: $item")
+                                    AppLogger.i("DEBUG_THEME",
+                                        "ThemeMode selected via Row: $item")
                                     mode = item
                                     settings.themeMode = item
                                     onSettingChanged()
@@ -337,8 +354,14 @@ private fun ThemeModeSetting(settings: SettingsManager, onSettingChanged: () -> 
                             RadioButton(
                                 selected = item == mode,
                                 onClick = {
+                                    // === DEBUG + BUG FIX: 补上 onSettingChanged() ===
+                                    android.util.Log.d("WMPlayer_Theme",
+                                        "ThemeMode RadioButton click: $item")
+                                    AppLogger.i("DEBUG_THEME",
+                                        "ThemeMode selected via RadioButton: $item")
                                     mode = item
                                     settings.themeMode = item
+                                    onSettingChanged()   // ← 这行原来缺失！
                                     expanded = false
                                 }
                             )

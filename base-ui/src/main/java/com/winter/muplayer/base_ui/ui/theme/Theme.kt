@@ -10,6 +10,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -269,6 +270,18 @@ fun AppTheme(
       
       darkTheme -> darkScheme
       else -> lightScheme
+  }
+
+  // === DEBUG: 监控 AppTheme 重组 ===
+  val debugHash = colorScheme.hashCode()
+  val debugBg = colorScheme.background
+  val debugSurface = colorScheme.surface
+  SideEffect {
+      android.util.Log.d("WMPlayer_Theme",
+          "AppTheme recompose: darkTheme=$darkTheme dynamicColor=$dynamicColor " +
+          "hash=$debugHash bg=$debugBg surface=$debugSurface")
+      com.winter.muplayer.core.AppLogger.i("DEBUG_THEME",
+          "AppTheme recompose: darkTheme=$darkTheme hash=$debugHash")
   }
 
   MaterialTheme(
