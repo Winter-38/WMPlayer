@@ -1,0 +1,13 @@
+/build/
+/app/build/
+/*/build/
+/.idea/
+*.iml
+local.properties
+.gradle/
+gradle/wrapper/gradle-wrapper.jar
+*.log
+/.codewhale/
+/release/
+*.jks
+*.keystore
