@@ -19,14 +19,17 @@ package com.winter.muplayer.base_ui.ui.config
  */
 object CssParser {
 
+    // 匹配 .name { } 或 #name { }，保留前缀作为 key
+    private val BLOCK_REGEX = Regex("""([.#])([\w-]+)\s*\{([^}]*)\}""")
+
     /** 解析 CSS 文本，返回 selector → 属性字典（保留 . / # 前缀） */
     fun parse(cssText: String): Map<String, Map<String, String>> {
+        if (cssText.isBlank()) return emptyMap()
         val cleaned = removeComments(cssText)
+        if (cleaned.isBlank()) return emptyMap()
         val rules = mutableMapOf<String, Map<String, String>>()
 
-        // 匹配 .name { } 或 #name { }，保留前缀作为 key
-        val blockRegex = Regex("""([.#])([\w-]+)\s*\{([^}]*)\}""")
-        for (match in blockRegex.findAll(cleaned)) {
+        for (match in BLOCK_REGEX.findAll(cleaned)) {
             val prefix = match.groupValues[1]    // "." 或 "#"
             val name = match.groupValues[2]      // "app-top" 或 "app-name"
             val body = match.groupValues[3].trim()

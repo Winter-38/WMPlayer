@@ -67,6 +67,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import com.winter.muplayer.base_ui.ui.config.SlotContext
+import com.winter.muplayer.base_ui.ui.config.ComponentEntry
+import com.winter.muplayer.base_ui.ui.config.ComponentLayout
+import com.winter.muplayer.base_ui.ui.config.CssRuleTable
 import com.winter.muplayer.base_ui.ui.config.SlotRenderer
 import com.winter.muplayer.base_ui.ui.config.StyleConfigLoader
 import com.winter.muplayer.base_ui.ui.config.registerBuiltInComponents
@@ -251,21 +254,18 @@ fun MusicPlayerApp(
 
     LaunchedEffect(Unit) {
         registerBuiltInComponents()
-        configLoader.writeDefaultsIfMissing()
-        configLoader.reload()  // 首次创建默认文件后重新加载
+        configLoader.initialize()  // 写入默认配置（如需）+ 从磁盘加载，一次性完成
     }
 
     // 本地音乐列表（初始空列表，后台 LaunchedEffect 加载缓存后再更新）
     val scanner = remember { LocalMusicScanner(context) }
     var coverCacheSize by remember { mutableStateOf("0 KB") }
 
-    // 首次加载：后台加载磁盘缓存 + 扫描本地音乐（不阻塞 UI 首帧）
+    // 首次加载：磁盘缓存 → 快速首屏 → 全量扫描（不阻塞 UI 首帧）
     LaunchedEffect(Unit) {
         // 0. 后台加载上次扫描的磁盘缓存，不阻塞首帧组合
         browserState.isLoading = true
         val cached = withContext(Dispatchers.IO) { scanner.getCachedTracks() }
-        browserState.tracks = cached
-        browserState.isLoading = false
 
         // 1. 权限检查：无权限则跳过扫描（保留磁盘缓存中的旧结果）
         if (Build.VERSION.SDK_INT >= 33) {
@@ -274,20 +274,41 @@ fun MusicPlayerApp(
                     context, perm
                 ) == android.content.pm.PackageManager.PERMISSION_GRANTED
             }
-            if (!permissionGranted) return@LaunchedEffect
+            if (!permissionGranted) {
+                browserState.tracks = cached
+                browserState.isLoading = false
+                return@LaunchedEffect
+            }
         }
-        // 2. 后台静默扫描，完成后更新列表
-        browserState.isLoading = true
-        val tracks = withContext(Dispatchers.IO) { scanner.scan() }
-        browserState.tracks = tracks
-        browserState.isLoading = false
-        // 3. 恢复上次的播放状态（队列 + 当前曲目）
-        musicPlayerCore.restorePlaybackState(tracks)
-        // 4. 封面缓存放后台慢慢存，不拖慢首次显示
-        launch(Dispatchers.IO) {
-            cacheCoverFiles(context, tracks, coverCache)
-            withContext(Dispatchers.Main) {
-                coverCacheSize = computeCoverCacheSize(context)
+
+        if (cached.isNotEmpty()) {
+            // ── 有磁盘缓存：直接用，无需扫描 ──
+            browserState.tracks = cached
+            browserState.isLoading = false
+            musicPlayerCore.restorePlaybackState(cached)
+            launch(Dispatchers.IO) {
+                cacheCoverFiles(context, cached, coverCache)
+                withContext(Dispatchers.Main) {
+                    coverCacheSize = computeCoverCacheSize(context)
+                }
+            }
+        } else {
+            // ── 首次启动：分阶段扫描 ──
+            // 阶段①：快速扫前 300 首，立即显示
+            browserState.isLoading = true
+            val quickTracks = withContext(Dispatchers.IO) { scanner.scanFast() }
+            browserState.tracks = quickTracks
+            browserState.isLoading = false
+
+            // 阶段②：后台全量扫描，完成后覆盖
+            val allTracks = withContext(Dispatchers.IO) { scanner.scanFull() }
+            browserState.tracks = allTracks
+            musicPlayerCore.restorePlaybackState(allTracks)
+            launch(Dispatchers.IO) {
+                cacheCoverFiles(context, allTracks, coverCache)
+                withContext(Dispatchers.Main) {
+                    coverCacheSize = computeCoverCacheSize(context)
+                }
             }
         }
     }
@@ -312,7 +333,7 @@ fun MusicPlayerApp(
                     scope.launch {
                         scanner.invalidateCache()
                         browserState.isLoading = true
-                        val tracks = withContext(Dispatchers.IO) { scanner.scan() }
+                        val tracks = withContext(Dispatchers.IO) { scanner.scanFull() }
                         // 先显示歌单
                         browserState.tracks = tracks
                         browserState.isLoading = false
@@ -358,6 +379,7 @@ fun MusicPlayerApp(
                         slots = configState.slots,
                         css = cssRules,
                         customComponents = configState.customComponents,
+                        debug = true,
                         context = SlotContext(
                             slotName = "",
                             onOpenSearch = { showSearchScreen = true },
@@ -404,7 +426,10 @@ fun MusicPlayerApp(
             onSeek = musicPlayerCore::seekTo,
             onPlayModeChange = musicPlayerCore::setPlayMode,
             onShowQueue = { showQueue = true },
-            onDismiss = { showFullPlayer = false }
+            onDismiss = { showFullPlayer = false },
+            fullPlayerSlots = configState.fullPlayerSlots,
+            cssRules = cssRules,
+            musicPlayerCore = musicPlayerCore,
         )
     }
 
@@ -734,21 +759,18 @@ fun FullPlayerPanel(
     onSeek: (Long) -> Unit,
     onPlayModeChange: (PlayMode) -> Unit,
     onShowQueue: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    // ── Slot 配置 ──
+    fullPlayerSlots: Map<String, List<ComponentEntry>> = ComponentLayout.defaultFullPlayerSlots,
+    cssRules: CssRuleTable = CssRuleTable(),
+    musicPlayerCore: MusicPlayerCore? = null,
 ) {
     val currentTrack = playerState.currentTrack
-    val isPlaying = playerState.state == PlayerState.PLAYING
     val scope = rememberCoroutineScope()
     var offsetY by remember { mutableFloatStateOf(0f) }
     var itemHeight by remember { mutableFloatStateOf(0f) }
     var isExiting by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
-
-    // ── FullPlayer 内部状态 ──
-    val fpColors by remember { mutableStateOf(emptyMap<String, Any>()) }
-    val fpSizes by remember { mutableStateOf(emptyMap<String, Any>()) }
-    val fpVisibility by remember { mutableStateOf(emptyMap<String, Any?>()) }
-    val fpAppearance by remember { mutableStateOf(emptyMap<String, Any>()) }
 
     val performDismiss: () -> Unit = {
         scope.launch {
@@ -936,135 +958,39 @@ fun FullPlayerPanel(
                     }
                 }
 
-                // ====== 下半部分 ======
-                Column(
+                // ====== 下半部分（Slot 驱动） ======
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                         .verticalScroll(scrollState),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    contentAlignment = Alignment.Center,
                 ) {
-                    // ====== 歌曲信息 ======
-                    Text(
-                        text = currentTrack?.title ?: stringResource(R.string.no_track_selected),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = adaptiveTint
-                    )
-
-                    if (currentTrack != null) {
-                        Text(
-                            text = "${currentTrack.artist} • ${currentTrack.album}",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = adaptiveTint.copy(alpha = 0.7f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    // ====== 进度条 ======
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Slider(
-                            value = if (playerState.duration > 0)
-                                playerState.progress.toFloat() / playerState.duration.toFloat()
-                            else 0f,
-                            onValueChange = { fraction ->
-                                onSeek((fraction * playerState.duration).toLong())
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.primary,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
-                            )
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = formatDuration(playerState.progress),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = formatDuration(playerState.duration),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-
-                    // ====== 播放控制按钮 ======
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 播放模式（插件可控显隐）
-                        if (fpVisibility["btn_mode"] != false) {
-                            PlayModeButton(
-                                playMode = playMode,
-                                onClick = {
-                                    val newMode = when (playMode) {
-                                        PlayMode.SEQUENTIAL -> PlayMode.SHUFFLE
-                                        PlayMode.SHUFFLE -> PlayMode.SINGLE_LOOP
-                                        PlayMode.SINGLE_LOOP -> PlayMode.REPEAT_ALL
-                                        PlayMode.REPEAT_ALL -> PlayMode.SEQUENTIAL
-                                    }
-                                    onPlayModeChange(newMode)
-                                },
-                                tint = adaptiveTint
-                            )
-                        }
-
-                        // 上一首
-                        ControlButton(
-                            icon = painterResource(R.drawable.ic_skip_previous),
-                            onClick = onPrevious,
-                            size = 48.dp,
-                            tint = adaptiveTint
-                        )
-
-                        // 播放/暂停
-                        PlayPauseButton(
-                            isPlaying = isPlaying,
-                            isLoading = playerState.state == PlayerState.LOADING,
+                    SlotRenderer(
+                        slots = fullPlayerSlots,
+                        css = cssRules,
+                        context = SlotContext(
+                            slotName = "main",
+                            onOpenSearch = {},
+                            onOpenSettings = {},
+                            localMusicList = emptyList(),
+                            isLoadingLocal = false,
+                            coverCache = coverCache,
+                            musicPlayerCore = musicPlayerCore ?: error("musicPlayerCore required"),
+                            onPlayTrackSmart = { _, _ -> },
+                            playerState = playerState,
                             onPlay = onPlay,
                             onPause = onPause,
-                            containerColor = adaptiveTint.copy(alpha = 0.2f),
-                            iconTint = adaptiveTint
-                        )
-
-                        // 下一首
-                        ControlButton(
-                            icon = painterResource(R.drawable.ic_skip_next),
-                            onClick = onNext,
-                            size = 48.dp,
-                            tint = adaptiveTint
-                        )
-
-                        // 播放列表
-                        IconButton(onClick = onShowQueue) {
-                            Icon(
-                                painterResource(R.drawable.ic_playlist_music),
-                                contentDescription = stringResource(R.string.playlist),
-                                modifier = Modifier.size(32.dp),
-                                tint = adaptiveTint
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(8.dp))
+                            onNext = onNext,
+                            onPrevious = onPrevious,
+                            onOpenFullPlayer = {},
+                            onOpenQueue = onShowQueue,
+                            onSeek = onSeek,
+                            onPlayModeChange = onPlayModeChange,
+                            playMode = playMode,
+                            adaptiveTint = adaptiveTint,
+                        ),
+                    )
                 }
         }
     }
@@ -1945,6 +1871,11 @@ private suspend fun cacheCoverFiles(
         val cacheDir = java.io.File(context.cacheDir, "covers")
         cacheDir.mkdirs()
         val coverFile = java.io.File(cacheDir, "${track.id}.jpg")
+        // 文件已存在 → 跳过 I/O，直接填缓存
+        if (coverFile.exists()) {
+            coverCache[track.id] = coverFile.absolutePath
+            continue
+        }
         try {
             if (track.albumId > 0L) {
                 val albumArtUri = android.net.Uri.parse(

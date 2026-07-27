@@ -7,7 +7,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -36,10 +40,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +56,11 @@ import com.winter.muplayer.base_ui.MusicBrowserList
 import com.winter.muplayer.base_ui.MusicBrowserSort
 import com.winter.muplayer.base_ui.MusicBrowserTabs
 import com.winter.muplayer.base_ui.R
+import com.winter.muplayer.base_ui.ControlButton
+import com.winter.muplayer.base_ui.PlayModeButton
+import com.winter.muplayer.base_ui.PlayPauseButton
+import com.winter.muplayer.base_ui.formatDuration
+import com.winter.muplayer.model.PlayMode
 import com.winter.muplayer.model.PlayerState
 
 /**
@@ -63,9 +73,17 @@ fun registerBuiltInComponents() {
         "app-name" to { AppName() },
         "search-button" to { SearchButton() },
         "setting-button" to { SettingButton() },
+        "tab-bar" to { TabBar() },
+        "sort" to { Sort() },
         "playlist" to { Playlist() },
         "playbar" to { PlayBar() },
         "icon" to { IconComponent() },
+        // 全屏播放器组件
+        "track-info" to { TrackInfo() },
+        "progress-bar" to { ProgressBar() },
+        "controls-row" to { ControlsRow() },
+        // 向后兼容：旧版 playlist 复合组件
+        "old-playlist" to { OldPlaylist() },
     )
 }
 
@@ -157,8 +175,38 @@ private fun SlotContext.IconComponent() {
     )
 }
 
+// ==================== tab-bar ====================
+
+@Composable
+private fun SlotContext.TabBar() {
+    MusicBrowserTabs()
+}
+
+// ==================== sort ====================
+
+@Composable
+private fun SlotContext.Sort() {
+    MusicBrowserSort()
+}
+
+// ==================== playlist ====================
+
 @Composable
 private fun SlotContext.Playlist() {
+    Box(modifier = Modifier.fillMaxSize()) {
+        MusicBrowserList(
+            coverCache = coverCache,
+            onTrackClick = { track, contextTracks ->
+                onPlayTrackSmart(track, contextTracks)
+            },
+        )
+    }
+}
+
+// ==================== 向后兼容的旧版 playlist 复合组件 ====================
+
+@Composable
+private fun SlotContext.OldPlaylist() {
     Column(modifier = Modifier.fillMaxSize()) {
         MusicBrowserTabs()
         MusicBrowserSort()
@@ -287,6 +335,176 @@ private fun SlotContext.PlayBar() {
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(26.dp),
                 )
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════
+// 全屏播放器组件
+// ══════════════════════════════════════════════
+
+@Composable
+private fun SlotContext.TrackInfo() {
+    val currentTrack = playerState.currentTrack
+    val tint = if (adaptiveTint != Color.Unspecified) adaptiveTint else MaterialTheme.colorScheme.onSurface
+    val noTrack = stringResource(com.winter.muplayer.base_ui.R.string.no_track_selected)
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val w = maxWidth
+        when {
+            w >= 200.dp -> {
+                Column {
+                    Text(
+                        text = currentTrack?.title ?: noTrack,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = tint,
+                    )
+                    if (currentTrack != null) {
+                        Text(
+                            text = "${currentTrack.artist} • ${currentTrack.album}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = tint.copy(alpha = 0.7f),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            w >= 120.dp -> {
+                val label = if (currentTrack != null)
+                    "${currentTrack.title} — ${currentTrack.artist}"
+                else noTrack
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = tint,
+                )
+            }
+            else -> {
+                Icon(
+                    painterResource(com.winter.muplayer.base_ui.R.drawable.ic_music_note),
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SlotContext.ProgressBar() {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val w = maxWidth
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Slider(
+                value = if (playerState.duration > 0)
+                    playerState.progress.toFloat() / playerState.duration.toFloat()
+                else 0f,
+                onValueChange = { fraction ->
+                    onSeek((fraction * playerState.duration).toLong())
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                ),
+            )
+
+            // 窄时隐藏时间标签
+            if (w >= 180.dp) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = formatDuration(playerState.progress),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = formatDuration(playerState.duration),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SlotContext.ControlsRow() {
+    val isPlaying = playerState.state == PlayerState.PLAYING
+    val tint = if (adaptiveTint != Color.Unspecified) adaptiveTint else MaterialTheme.colorScheme.onSurface
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val w = maxWidth
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 播放模式
+            PlayModeButton(
+                playMode = playMode,
+                onClick = {
+                    val newMode = when (playMode) {
+                        PlayMode.SEQUENTIAL -> PlayMode.SHUFFLE
+                        PlayMode.SHUFFLE -> PlayMode.SINGLE_LOOP
+                        PlayMode.SINGLE_LOOP -> PlayMode.REPEAT_ALL
+                        PlayMode.REPEAT_ALL -> PlayMode.SEQUENTIAL
+                    }
+                    onPlayModeChange(newMode)
+                },
+                tint = tint,
+            )
+
+            // 上一首
+            if (w >= 160.dp) {
+                ControlButton(
+                    icon = painterResource(R.drawable.ic_skip_previous),
+                    onClick = onPrevious,
+                    size = 48.dp,
+                    tint = tint,
+                )
+            }
+
+            // 播放/暂停
+            PlayPauseButton(
+                isPlaying = isPlaying,
+                isLoading = playerState.state == PlayerState.LOADING,
+                onPlay = onPlay,
+                onPause = onPause,
+                containerColor = tint.copy(alpha = 0.2f),
+                iconTint = tint,
+            )
+
+            // 下一首
+            if (w >= 160.dp) {
+                ControlButton(
+                    icon = painterResource(R.drawable.ic_skip_next),
+                    onClick = onNext,
+                    size = 48.dp,
+                    tint = tint,
+                )
+            }
+
+            // 播放列表
+            if (w >= 200.dp) {
+                IconButton(onClick = onOpenQueue) {
+                    Icon(
+                        painterResource(R.drawable.ic_playlist_music),
+                        contentDescription = stringResource(com.winter.muplayer.base_ui.R.string.playlist),
+                        modifier = Modifier.size(32.dp),
+                        tint = tint,
+                    )
+                }
             }
         }
     }

@@ -40,7 +40,12 @@ class StyleConfigLoader(private val context: Context) {
             else File(context.filesDir, "config")
         }
 
-    init {
+    /**
+     * 一次性初始化：写入默认配置（如果需要）+ 从磁盘加载。
+     * 在 LaunchedEffect 中调用，不在 init 中阻塞首帧组合。
+     */
+    fun initialize() {
+        writeDefaultsIfMissing()
         reload()
     }
 
@@ -60,7 +65,6 @@ class StyleConfigLoader(private val context: Context) {
         }
 
         try {
-            val raw = LayoutParser.readFileContent(mainFile).trim()
             fileLastModified = mainFile.lastModified()
 
             // 对象格式：{ "slot名": [...] }，支持 include
@@ -79,6 +83,7 @@ class StyleConfigLoader(private val context: Context) {
 
     /** 加载 config/ 下所有 .css 文件，按文件名升序合并 */
     private fun loadCssFiles(): CssRuleTable {
+        if (!configDir.isDirectory) return CssRuleTable()
         val cssFiles = configDir.listFiles { f -> f.extension == "css" }
             ?.sortedBy { it.name } ?: return CssRuleTable()
         val merged = mutableMapOf<String, Map<String, String>>()
@@ -169,11 +174,12 @@ class StyleConfigLoader(private val context: Context) {
             val styleJson = buildString {
                 appendLine("{")
                 appendLine("  // 根级 key = slot 名，value = 组件列表")
-                appendLine("  // 组件以 # 开头（# 可选），如 #playlist")
+                appendLine("  // 组件以 # 开头（# 可选），如 #tab-bar / #playlist")
                 appendLine("  // 样式全部在 styles.css 中定义")
                 appendLine("  \"app-top\": [\"#app-name\", \"#search-button\", \"#setting-button\", \"#search-bar\"],")
-                appendLine("  \"app-center\": [\"#playlist\"],")
-                appendLine("  \"app-bottom\": [\"#playbar\"]")
+                appendLine("  \"app-center\": [\"#tab-bar\", \"#sort\", \"#playlist\"],")
+                appendLine("  \"app-bottom\": [\"#playbar\"],")
+                appendLine("  \"main\": [\"#track-info\", \"#progress-bar\", \"#controls-row\"]")
                 appendLine("}")
             }
             styleFile.writeText(styleJson)
@@ -187,6 +193,10 @@ class StyleConfigLoader(private val context: Context) {
  * 每个 slot 默认平分屏幕高度（weight: 1）。
  * 要让 slot 只包裹内容不拉伸，设 weight: 0。
  * 要让子组件水平排列，设 arrange: horizontal 或 arrange: row。
+ *
+ * 全屏播放器 slot：main
+ *   .main { arrange: column; gap: 8px; }
+ *   设为 row 即可让 track-info / progress-bar / controls-row 水平排列。
  */
 """.trimIndent())
         }
@@ -194,10 +204,12 @@ class StyleConfigLoader(private val context: Context) {
 
     /** 从根级 JSON 对象解析 ComponentLayout。
      *  - 以 `#` 开头的 key → 自定义组件定义
-     *  - 其他 key → slot 名称 */
+     *  - `main` → 全屏播放器 slot 定义（不加入主界面 slots）
+     *  - 其他 key → 主界面 slot 名称 */
     private fun parseConfigObject(root: JSONObject): ComponentLayout {
         val slots = linkedMapOf<String, List<ComponentEntry>>()
         val customComponents = linkedMapOf<String, Map<String, Any?>>()
+        var fullPlayerSlots: Map<String, List<ComponentEntry>>? = null
         for (key in root.keys()) {
             if (key == "include") continue
             if (key.startsWith("#")) {
@@ -207,6 +219,12 @@ class StyleConfigLoader(private val context: Context) {
                     val props = mutableMapOf<String, Any?>()
                     for (k in obj.keys()) props[k] = obj.get(k)
                     customComponents[key.removePrefix("#")] = props
+                }
+            } else if (key == "main") {
+                // 全屏播放器 slot 定义（顶层，无包裹）
+                val entries = LayoutParser.parseSlotValue(root.get(key))
+                if (entries.isNotEmpty()) {
+                    fullPlayerSlots = mapOf("main" to entries)
                 }
             } else {
                 val value = root.get(key)
@@ -219,6 +237,7 @@ class StyleConfigLoader(private val context: Context) {
         return ComponentLayout(
             slots = if (slots.isNotEmpty()) slots else ComponentLayout.defaultSlots,
             customComponents = customComponents,
+            fullPlayerSlots = fullPlayerSlots ?: ComponentLayout.defaultFullPlayerSlots,
         )
     }
 

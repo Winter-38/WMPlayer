@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -36,15 +37,13 @@ fun SlotRenderer(
     context: SlotContext,
     css: CssRuleTable = LocalCssRules.current,
     customComponents: Map<String, Map<String, Any?>> = emptyMap(),
+    debug: Boolean = false,
 ) {
     CompositionLocalProvider(LocalCssRules provides css) {
         Column(modifier = Modifier.fillMaxSize()) {
             var isFirst = true
             var slotIndex = 0
-            val debugColors = listOf(
-                Color(0xFFFF4444), Color(0xFF44FF44), Color(0xFF4488FF),
-                Color(0xFFFF88FF), Color(0xFFFFDD44), Color(0xFF44FFFF),
-            )
+            var componentIndex = 0
             for ((slotName, components) in slots) {
                 val slotCss = css.rules[".$slotName"] ?: css.rules[slotName] ?: emptyMap()
                 val outerMod = if (isFirst) {
@@ -66,15 +65,31 @@ fun SlotRenderer(
                     rawWeight > 0f   -> Modifier.weight(rawWeight) // 显式正值 → 按比例
                     else             -> Modifier                  // weight: 0 → 包裹内容
                 }
-                val dc = debugColors[slotIndex++ % debugColors.size]
                 val slotBgCss = slotCss["background-color"]?.let { parseCssColor(it) }
-                val debugMod = outerMod
-                    .then(slotMod)
-                    .fillMaxWidth()
-                    .border(3.dp, dc)
-                    .let { if (slotBgCss != null) it.background(slotBgCss) else it.background(dc.copy(alpha = 0.06f)) }
 
-                Box(modifier = debugMod) {
+                val debugColors = listOf(
+                    Color(0xFFFF4444), Color(0xFF44FF44), Color(0xFF4488FF),
+                    Color(0xFFFF88FF), Color(0xFFFFDD44), Color(0xFF44FFFF),
+                )
+                // 仅 debug 时在 slot 级别轮询颜色，生产路径只看 CSS 显式 background-color
+                val slotModifier = if (debug) {
+                    slotIndex++
+                    val dc = debugColors[(slotIndex - 1) % debugColors.size]
+                    outerMod
+                        .then(slotMod)
+                        .fillMaxWidth()
+                        .border(3.dp, dc)
+                        .background(slotBgCss ?: dc.copy(alpha = 0.06f))
+                        .applyPaddingProps(slotCss)
+                } else {
+                    outerMod
+                        .then(slotMod)
+                        .fillMaxWidth()
+                        .let { if (slotBgCss != null) it.background(slotBgCss) else it }
+                        .applyPaddingProps(slotCss)
+                }
+
+                Box(modifier = slotModifier) {
                     // 内容容器：Row（水平）或 Column（垂直）
                     val content: @Composable () -> Unit = {
                         if (arrange == "horizontal" || arrange == "row") {
@@ -86,7 +101,16 @@ fun SlotRenderer(
                                 // ═══ RowScope 内，weight() 可用 ═══
                                 for (entry in components) {
                                     val compCss = css.rules["#${entry.id}"] ?: css.rules[entry.id] ?: emptyMap()
-                                    val mod = compCssModifier(compCss)
+                                    val mod = compCssModifier(compCss).let { m ->
+                                        if (debug) {
+                                            componentIndex++
+                                            val dc = debugColors[(componentIndex - 1) % debugColors.size]
+                                            m.drawWithContent {
+                                                drawContent()
+                                                drawRect(color = dc.copy(alpha = 0.12f), size = size)
+                                            }
+                                        } else m
+                                    }
                                     val animWrapper = parseAnimationWrapper(compCss)
                                     val compWeight = compCss["weight"]?.toFloatOrNull()
 
@@ -102,20 +126,54 @@ fun SlotRenderer(
                                         LocalComponentCss provides compCss,
                                     ) {
                                         val renderer: @Composable (Modifier) -> Unit = { mod ->
-                                            val def = customComponents[entry.id]
-                                            if (def != null && def["icon"] is String) {
-                                                renderCustomIcon(def, mod)
-                                            } else {
-                                                if (entry.isCustom) {
-                                                    android.util.Log.w("SlotRenderer", "Custom component #${entry.id} not defined in JSON — falling back to built-in")
+                                            val children = entry.extra["children"]
+                                            if (children is Map<*, *>) {
+                                                @Suppress("UNCHECKED_CAST")
+                                                val childSlots = children as Map<String, List<ComponentEntry>>
+                                                Box(modifier = mod) {
+                                                    Column(Modifier.fillMaxSize()) {
+                                                        ComponentRegistry.render(entry.id, Modifier)
+                                                        SlotRenderer(
+                                                            slots = childSlots,
+                                                            context = context,
+                                                            css = css,
+                                                            customComponents = customComponents,
+                                                            debug = debug,
+                                                        )
+                                                    }
                                                 }
-                                                ComponentRegistry.render(entry.id, mod)
+                                            } else {
+                                                val def = customComponents[entry.id]
+                                                if (def != null && def["icon"] is String) {
+                                                    renderCustomIcon(def, mod)
+                                                } else {
+                                                    if (entry.isCustom) {
+                                                        android.util.Log.w("SlotRenderer", "Custom component #${entry.id} not defined in JSON — falling back to built-in")
+                                                    }
+                                                    ComponentRegistry.render(entry.id, mod)
+                                                }
+                                            }
+                                        }
+                                        val alignSelf = compCss["align-self"]
+                                        val renderWithAlign: @Composable () -> Unit = {
+                                            when (alignSelf) {
+                                                "stretch" -> renderer(weightMod.fillMaxHeight())
+                                                else -> {
+                                                    val align = parseAlignSelfRow(alignSelf)
+                                                    if (align != null) {
+                                                        Box(modifier = weightMod, contentAlignment = align) {
+                                                            renderer(Modifier)
+                                                        }
+                                                    } else {
+                                                        renderer(weightMod)
+                                                    }
+                                                }
                                             }
                                         }
                                         if (animWrapper != null) {
-                                            animWrapper(weightMod) { renderer(Modifier) }
+                                            animWrapper(weightMod) { renderWithAlign() }
                                         } else {
-                                            renderer(weightMod)
+                                            renderWithAlign()
                                         }
                                     }
                                 }
@@ -128,7 +186,16 @@ fun SlotRenderer(
                                 // ═══ ColumnScope 内，weight() 可用 ═══
                                 for (entry in components) {
                                     val compCss = css.rules["#${entry.id}"] ?: css.rules[entry.id] ?: emptyMap()
-                                    val mod = compCssModifier(compCss)
+                                    val mod = compCssModifier(compCss).let { m ->
+                                        if (debug) {
+                                            componentIndex++
+                                            val dc = debugColors[(componentIndex - 1) % debugColors.size]
+                                            m.drawWithContent {
+                                                drawContent()
+                                                drawRect(color = dc.copy(alpha = 0.12f), size = size)
+                                            }
+                                        } else m
+                                    }
                                     val animWrapper = parseAnimationWrapper(compCss)
                                     val compWeight = compCss["weight"]?.toFloatOrNull()
 
@@ -144,20 +211,54 @@ fun SlotRenderer(
                                         LocalComponentCss provides compCss,
                                     ) {
                                         val renderer: @Composable (Modifier) -> Unit = { mod ->
-                                            val def = customComponents[entry.id]
-                                            if (def != null && def["icon"] is String) {
-                                                renderCustomIcon(def, mod)
-                                            } else {
-                                                if (entry.isCustom) {
-                                                    android.util.Log.w("SlotRenderer", "Custom component #${entry.id} not defined in JSON — falling back to built-in")
+                                            val children = entry.extra["children"]
+                                            if (children is Map<*, *>) {
+                                                @Suppress("UNCHECKED_CAST")
+                                                val childSlots = children as Map<String, List<ComponentEntry>>
+                                                Box(modifier = mod) {
+                                                    Column(Modifier.fillMaxSize()) {
+                                                        ComponentRegistry.render(entry.id, Modifier)
+                                                        SlotRenderer(
+                                                            slots = childSlots,
+                                                            context = context,
+                                                            css = css,
+                                                            customComponents = customComponents,
+                                                            debug = debug,
+                                                        )
+                                                    }
                                                 }
-                                                ComponentRegistry.render(entry.id, mod)
+                                            } else {
+                                                val def = customComponents[entry.id]
+                                                if (def != null && def["icon"] is String) {
+                                                    renderCustomIcon(def, mod)
+                                                } else {
+                                                    if (entry.isCustom) {
+                                                        android.util.Log.w("SlotRenderer", "Custom component #${entry.id} not defined in JSON — falling back to built-in")
+                                                    }
+                                                    ComponentRegistry.render(entry.id, mod)
+                                                }
+                                            }
+                                        }
+                                        val alignSelf = compCss["align-self"]
+                                        val renderWithAlign: @Composable () -> Unit = {
+                                            when (alignSelf) {
+                                                "stretch" -> renderer(weightMod.fillMaxWidth())
+                                                else -> {
+                                                    val align = parseAlignSelfColumn(alignSelf)
+                                                    if (align != null) {
+                                                        Box(modifier = weightMod, contentAlignment = align) {
+                                                            renderer(Modifier)
+                                                        }
+                                                    } else {
+                                                        renderer(weightMod)
+                                                    }
+                                                }
                                             }
                                         }
                                         if (animWrapper != null) {
-                                            animWrapper(weightMod) { renderer(Modifier) }
+                                            animWrapper(weightMod) { renderWithAlign() }
                                         } else {
-                                            renderer(weightMod)
+                                            renderWithAlign()
                                         }
                                     }
                                 }
@@ -165,20 +266,23 @@ fun SlotRenderer(
                         }
                     }
 
-                    // Slot 级 weight 已通过 slotMod 挂入 debugMod 链
+                    // Slot 级 weight 已通过 slotMod 挂入 modifier 链
                     content()
 
-                    // Debug 标签在后，绘制在最上层
-                    Text(
-                        text = "$slotName  w=$weight",
-                        color = dc,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .background(Color(0xCC000000))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
+                    // debug 模式叠加层 — slot 边框色 + 左上角标签
+                    if (debug) {
+                        val dc = debugColors[(slotIndex - 1) % debugColors.size]
+                        Text(
+                            text = "$slotName  w=$weight",
+                            color = dc,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .background(Color(0xCC000000))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
                 }
             }
         }
@@ -251,4 +355,8 @@ private fun SlotContext.copy(slotName: String) = SlotContext(
     onPrevious = onPrevious,
     onOpenFullPlayer = onOpenFullPlayer,
     onOpenQueue = onOpenQueue,
+    onSeek = onSeek,
+    onPlayModeChange = onPlayModeChange,
+    playMode = playMode,
+    adaptiveTint = adaptiveTint,
 )

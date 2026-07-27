@@ -65,15 +65,22 @@ class LocalMusicScanner(
     }
 
     /**
-     * 开始扫描！扫完会更新磁盘缓存。
+     * 快速扫描 — 只扫前 [count] 首，不缓存，用于快速首屏显示。
+     */
+    fun scanFast(count: Int = 300): List<Track> {
+        return scanMediaStore(count)
+    }
+
+    /**
+     * 全量扫描 — 扫完更新磁盘缓存。
      * 如果内存缓存有效则直接返回（同一 session 内不重复扫）。
      */
-    fun scan(): List<Track> {
+    fun scanFull(): List<Track> {
         // 同一 session 内缓存有效则直接返回
         if (cacheLoaded && cachedTracks.isNotEmpty()) return cachedTracks
 
         val tracks = if (Build.VERSION.SDK_INT >= 29) {
-            scanMediaStore()
+            scanMediaStore(MAX_TRACKS)
         } else {
             scanFileSystem()
         }
@@ -89,7 +96,7 @@ class LocalMusicScanner(
         cachedTracks = emptyList()
         cacheLoaded = false
         invalidateDiskCache()
-        return scan()
+        return scanFull()
     }
 
     /** 清掉缓存，下次 [scan] 会重新扫并更新磁盘缓存 */
@@ -169,7 +176,7 @@ class LocalMusicScanner(
 
     // ==================== MediaStore 扫描 ====================
 
-    private fun scanMediaStore(): List<Track> {
+    private fun scanMediaStore(limit: Int = MAX_TRACKS): List<Track> {
         val tracks = mutableListOf<Track>()
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
@@ -203,7 +210,7 @@ class LocalMusicScanner(
             val colDateAdded = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
 
             var rowCount = 0
-            while (rowCount < MAX_TRACKS && cursor.moveToNext()) {
+            while (rowCount < limit && cursor.moveToNext()) {
                 rowCount++
                 val data = cursor.getString(colData) ?: continue
                 val id = cursor.getLong(colId)

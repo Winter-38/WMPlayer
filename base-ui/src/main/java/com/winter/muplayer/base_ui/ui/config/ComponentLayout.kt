@@ -24,7 +24,7 @@ data class ComponentEntry(
  * 示例：
  *   {
  *     "app-top": ["#app-name", "#search-button", "#setting-button", "#search-bar"],
- *     "app-center": ["#playlist"],
+ *     "app-center": ["#tab-bar", "#sort", "#playlist"],
  *     "app-bottom": ["#playbar"]
  *   }
  */
@@ -42,6 +42,8 @@ data class ComponentLayout(
     val slots: Map<String, List<ComponentEntry>> = defaultSlots,
     /** 自定义组件定义 —— JSON 中以 `#name` 为 key 的条目 */
     val customComponents: Map<String, Map<String, Any?>> = emptyMap(),
+    /** 全屏播放器 slot 定义 —— fp-slots JSON key 解析至此，JSON 未定义时回退默认值 */
+    val fullPlayerSlots: Map<String, List<ComponentEntry>> = defaultFullPlayerSlots,
 ) {
     companion object {
         val defaultSlots: Map<String, List<ComponentEntry>> = mapOf(
@@ -50,8 +52,21 @@ data class ComponentLayout(
                 ComponentEntry("search-button"),
                 ComponentEntry("setting-button"),
             ),
-            "app-center" to listOf(ComponentEntry("playlist")),
+            "app-center" to listOf(
+                ComponentEntry("tab-bar"),
+                ComponentEntry("sort"),
+                ComponentEntry("playlist"),
+            ),
             "app-bottom" to listOf(ComponentEntry("playbar")),
+        )
+
+        /** 全屏播放器默认 slot 定义 —— 三个子区域竖向堆叠 */
+        val defaultFullPlayerSlots: Map<String, List<ComponentEntry>> = mapOf(
+            "main" to listOf(
+                ComponentEntry("track-info"),
+                ComponentEntry("progress-bar"),
+                ComponentEntry("controls-row"),
+            ),
         )
     }
 }

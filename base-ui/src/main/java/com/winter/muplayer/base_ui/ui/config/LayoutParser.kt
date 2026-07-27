@@ -9,9 +9,13 @@ import java.io.File
  *
  * 每个 slot value 是组件数组。每项支持两种格式：
  * - 字符串：`"#app-name"` → ComponentEntry("app-name")
- * - 对象：`{ "type": "#button", "action": "play", "label": "Go" }`
+ * - 对象（有 type）：
+ *   `{ "type": "#button", "action": "play", "label": "Go" }`
  *   → ComponentEntry("button", {"action": "play", "label": "Go"})
- *   其中 type / class / name 为保留 key，不进入 extra
+ *   其中 type / class / name / children 为保留 key，不进入 extra
+ * - 对象（无 type，且所有 value 都是数组）：
+ *   `{ "top-row": ["#tab-bar"], "body": ["#playlist"] }`
+ *   → 自动视为子 slot 字典，等效于嵌入一个容器组件
  */
 object LayoutParser {
 
@@ -36,17 +40,49 @@ object LayoutParser {
                 }
                 is JSONObject -> {
                     val type = item.optString("type", "").takeIf { it.isNotBlank() }
-                        ?: throw IllegalArgumentException("Component object must have a \"type\" string")
-                    val id = normalizeId(type)
-                    if (id.isBlank()) continue
-                    val extra = mutableMapOf<String, Any?>()
-                    for (key in item.keys()) {
-                        if (key in setOf("type", "class", "name")) continue
-                        extra[key] = item.get(key)
+                    if (type == null) {
+                        // 无 type → 尝试作为子 slot 字典（每个 value 都应是数组）
+                        val childSlots = parseChildrenMap(item)
+                        if (childSlots.isNotEmpty()) {
+                            result.add(ComponentEntry("__slot__", mapOf("children" to childSlots)))
+                        }
+                    } else {
+                        // 有 type → 组件对象
+                        val id = normalizeId(type)
+                        if (id.isBlank()) continue
+                        val extra = mutableMapOf<String, Any?>()
+                        for (key in item.keys()) {
+                            if (key in setOf("type", "class", "name", "children")) continue
+                            extra[key] = item.get(key)
+                        }
+                        // 解析 children 嵌套子 slot（与顶层 slot 格式一致）
+                        val rawChildren = item.optJSONObject("children")
+                        if (rawChildren != null) {
+                            extra["children"] = parseChildrenMap(rawChildren)
+                        }
+                        result.add(ComponentEntry(id, extra))
                     }
-                    result.add(ComponentEntry(id, extra))
                 }
             }
+        }
+        return result
+    }
+
+    /**
+     * 解析 children 字典：每个 key 映射到一个组件数组，与顶层 slot 格式一致。
+     * ```json
+     * { "slot-a": ["#comp1"], "slot-b": ["#comp2", "#comp3"] }
+     * ```
+     */
+    private fun parseChildrenMap(json: JSONObject): Map<String, List<ComponentEntry>> {
+        val result = linkedMapOf<String, List<ComponentEntry>>()
+        for (key in json.keys()) {
+            val value = json.get(key)
+            val entries = when (value) {
+                is JSONArray -> parseComponents(value)
+                else -> throw IllegalArgumentException("Children slot '$key' must be a JSON array")
+            }
+            result[key] = entries
         }
         return result
     }

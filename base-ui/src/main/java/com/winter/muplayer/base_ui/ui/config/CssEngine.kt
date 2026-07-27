@@ -8,6 +8,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,9 +18,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -63,7 +66,7 @@ fun Modifier.applyCssClass(
 /**
  * 将 CSS 属性字典应用到 Modifier。
  * 支持：background-color / size / width / height / border-radius /
- *       padding / opacity / scale / rotate
+ *       padding / padding-top/right/bottom/left / opacity / scale / rotate
  */
 fun Modifier.applyCssProps(props: Map<String, String>): Modifier {
     var m = this
@@ -88,10 +91,8 @@ fun Modifier.applyCssProps(props: Map<String, String>): Modifier {
         parseDp(radiusStr)?.let { r -> m = m.clip(RoundedCornerShape(r)) }
     }
 
-    // 5. padding
-    props["padding"]?.let { padStr ->
-        parseDp(padStr)?.let { p -> m = m.padding(p) }
-    }
+    // 5. padding（含简写和单侧）
+    m = m.applyPaddingProps(props)
 
     // 6. opacity
     props["opacity"]?.let { opacityStr ->
@@ -111,7 +112,59 @@ fun Modifier.applyCssProps(props: Map<String, String>): Modifier {
         if (v != null) m = m.graphicsLayer { rotationZ = v }
     }
 
+    // 9. overflow — 内容溢出裁剪
+    props["overflow"]?.let {
+        if (it == "hidden") m = m.clipToBounds()
+    }
+
     return m
+}
+
+/**
+ * 从 CSS 属性中提取 padding 值并应用到 Modifier。
+ *
+ * 支持格式：
+ *   padding: 8px                    → 四边统一
+ *   padding: 8px 16px               → 上下 8px，左右 16px
+ *   padding: 8px 12px 16px 20px     → 上 8px，右 12px，下 16px，左 20px
+ *   padding-top: 8px                → 单独覆盖上边
+ *   padding-right: 12px
+ *   padding-bottom: 16px
+ *   padding-left: 20px
+ *
+ * 简写和单侧可同时使用，单侧值覆盖简写中的对应边。
+ * 单侧属性不再额外叠加简写值。
+ */
+fun Modifier.applyPaddingProps(props: Map<String, String>): Modifier {
+    var padT = 0.dp; var padR = 0.dp; var padB = 0.dp; var padL = 0.dp
+
+    // 简写 padding（1 / 2 / 4 值）
+    props["padding"]?.let { padStr ->
+        val parts = padStr.split(" ").map { it.trim() }.filter { it.isNotEmpty() }
+        when (parts.size) {
+            1 -> parseDp(parts[0])?.let { padT = it; padR = it; padB = it; padL = it }
+            2 -> {
+                parseDp(parts[0])?.let { padT = it; padB = it }
+                parseDp(parts[1])?.let { padL = it; padR = it }
+            }
+            4 -> {
+                parseDp(parts[0])?.let { padT = it }
+                parseDp(parts[1])?.let { padR = it }
+                parseDp(parts[2])?.let { padB = it }
+                parseDp(parts[3])?.let { padL = it }
+            }
+        }
+    }
+
+    // 单侧 padding 覆盖简写值
+    props["padding-top"]?.let { parseDp(it)?.let { padT = it } }
+    props["padding-right"]?.let { parseDp(it)?.let { padR = it } }
+    props["padding-bottom"]?.let { parseDp(it)?.let { padB = it } }
+    props["padding-left"]?.let { parseDp(it)?.let { padL = it } }
+
+    return if (padT > 0.dp || padR > 0.dp || padB > 0.dp || padL > 0.dp)
+        this.padding(PaddingValues(start = padL, top = padT, end = padR, bottom = padB))
+    else this
 }
 
 // ── CSS 动画 ──
@@ -198,23 +251,19 @@ private fun CssAnimationBox(
             )
         }
         "bounce" -> {
-            val offsetY by transition.animateFloat(
-                initialValue = 0f, targetValue = -10f,
+            val bounceY by transition.animateFloat(
+                initialValue = 0f, targetValue = -12f,
                 animationSpec = infiniteRepeatable(
                     animation = tween(anim.durationMs / 2, easing = anim.easing.toComposeEasing()),
                     repeatMode = RepeatMode.Reverse,
                 ), label = "bounce"
             )
             androidx.compose.foundation.layout.Box(
-                modifier = modifier.graphicsLayer { translationY = offsetY },
+                modifier = modifier.graphicsLayer { translationY = bounceY },
                 content = { content() }
             )
         }
         "fade-in" -> {
-            // 一次性淡入：只在首次组合时从 0→1 动画
-            val alpha by androidx.compose.runtime.produceState(initialValue = 0f) {
-                // 使用 animate 不是很好，简单做法用 LaunchedEffect
-            }
             val animatedAlpha = androidx.compose.animation.core.Animatable(0f)
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 animatedAlpha.animateTo(
@@ -293,5 +342,25 @@ private fun parseAngle(value: String): Float? {
     return when {
         trimmed.endsWith("deg") -> trimmed.removeSuffix("deg").trim().toFloatOrNull()
         else -> trimmed.toFloatOrNull()
+    }
+}
+
+/** 解析 CSS align-self 值（Row 内），null = stretch 或无效值。 */
+fun parseAlignSelfRow(value: String?): Alignment? {
+    return when (value) {
+        "start"  -> Alignment.Top as Alignment
+        "center" -> Alignment.CenterVertically as Alignment
+        "end"    -> Alignment.Bottom as Alignment
+        else     -> null
+    }
+}
+
+/** 解析 CSS align-self 值（Column 内），null = stretch 或无效值。 */
+fun parseAlignSelfColumn(value: String?): Alignment? {
+    return when (value) {
+        "start"  -> Alignment.Start as Alignment
+        "center" -> Alignment.CenterHorizontally as Alignment
+        "end"    -> Alignment.End as Alignment
+        else     -> null
     }
 }

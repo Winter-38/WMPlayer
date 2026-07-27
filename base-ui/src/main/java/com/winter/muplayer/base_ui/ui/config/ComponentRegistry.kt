@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import com.winter.muplayer.core.MusicPlayerCore
+import com.winter.muplayer.model.PlayMode
 import com.winter.muplayer.model.PlayerStateData
 import com.winter.muplayer.model.Track
 
@@ -32,6 +34,11 @@ class SlotContext(
     val onPrevious: () -> Unit,
     val onOpenFullPlayer: () -> Unit,
     val onOpenQueue: () -> Unit,
+    // ── 全屏播放器专属 ──
+    val onSeek: (Long) -> Unit = { _ -> },
+    val onPlayModeChange: (PlayMode) -> Unit = {},
+    val playMode: PlayMode = PlayMode.SEQUENTIAL,
+    val adaptiveTint: Color = Color.Unspecified,
 )
 
 /** CompositionLocal 承载当前 slot 上下文 */
