@@ -24,6 +24,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "WinterMuPlayer"
 include(":app")
-include(":base-ui")
+include(":ui")
+include(":config")
 include(":model")
 include(":core")

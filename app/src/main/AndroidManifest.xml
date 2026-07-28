@@ -36,12 +36,12 @@
         </provider>
 
         <service
-            android:name="com.winter.muplayer.core.MusicPlaybackService"
+            android:name="com.winter.muplayer.service.MusicPlaybackService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="false" />
 
         <activity
-            android:name="com.winter.muplayer.base_ui.MusicUIActivity"
+            android:name="com.winter.muplayer.ui.activity.MusicUIActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:windowSoftInputMode="adjustNothing"

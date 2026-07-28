@@ -171,7 +171,7 @@ class MusicPlaybackService : MediaSessionService() {
         val target = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         } ?: Intent().apply {
-            setClassName(packageName, "com.winter.muplayer.base_ui.MusicUIActivity")
+            setClassName(packageName, "com.winter.muplayer.ui.activity.MusicUIActivity")
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         return PendingIntent.getActivity(
