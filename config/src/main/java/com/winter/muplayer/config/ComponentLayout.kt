@@ -1,15 +1,18 @@
 package com.winter.muplayer.config
 
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
  * 组件条目 —— 一个组件实例在 slot 中的声明。
- * @param id       组件注册 ID（无 # 前缀）
+ * @param id       组件注册 ID（字符串简写或 JSON key 去掉 # 前缀后的值）
+ * @param cid      可选实例标识，用于 CSS 精准匹配（`#<cid>` 规则覆盖 `#<id>` 规则）
  * @param extra    组件行为/配置参数，由 JSON 对象属性指定
  * @param isCustom 原始写法是否带 `#` 前缀（未找到自定义定义时回退内置组件并输出警告）
  */
 data class ComponentEntry(
     val id: String,
+    val cid: String? = null,
     val extra: Map<String, Any?> = emptyMap(),
     val isCustom: Boolean = false,
 )
@@ -19,7 +22,7 @@ data class ComponentEntry(
  *
  * 每个 slot 的 value 是组件数组，每项可以是：
  * - 字符串：`"#app-name"`（不带 extra）
- * - 对象：`{ "type": "#button", "action": "play" }`（extra 为 type/class 外的属性）
+ * - 对象：`{ "#button": { "action": "play" } }`（extra 为 cid/class 外的属性）
  *
  * 示例：
  *   {
@@ -49,6 +52,7 @@ data class ComponentLayout(
         val defaultSlots: Map<String, List<ComponentEntry>> = mapOf(
             "app-top" to listOf(
                 ComponentEntry("app-name"),
+                ComponentEntry("spacer"),
                 ComponentEntry("search-button"),
                 ComponentEntry("setting-button"),
             ),
@@ -72,3 +76,6 @@ data class ComponentLayout(
 }
 
 val LocalComponentLayout = compositionLocalOf { ComponentLayout() }
+
+/** 当前组件实例的 cid（如 JSON 中声明了 cid 字段），供组件自身或 CSS 调试使用。 */
+val LocalComponentCid = staticCompositionLocalOf<String?> { null }

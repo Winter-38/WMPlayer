@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -47,12 +48,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.winter.muplayer.ui.browser.LocalBrowserState
 import com.winter.muplayer.ui.browser.MusicBrowserList
@@ -86,6 +89,8 @@ fun registerBuiltInComponents() {
         "playlist" to { Playlist() },
         "playbar" to { PlayBar() },
         "icon" to { IconComponent() },
+        "text" to { TextComponent() },
+        "spacer" to { Spacer() },
         // 全屏播放器组件
         "track-info" to { TrackInfo() },
         "progress-bar" to { ProgressBar() },
@@ -101,31 +106,43 @@ fun registerBuiltInComponents() {
 
 @Composable
 private fun SlotContext.AppName() {
-    val cssColor = LocalComponentCss.current["color"]?.let { parseCssColor(it) }
+    val css = LocalComponentCss.current
+    val cssColor = css["color"]?.let { parseCssColor(it) }
+    val fontSize = css["font-size"]?.let { parseCssDp(it) }
     Text(
         text = stringResource(com.winter.muplayer.ui.R.string.app_name),
         fontWeight = FontWeight.Bold,
-        style = MaterialTheme.typography.titleLarge,
+        style = if (fontSize != null) {
+            MaterialTheme.typography.titleLarge.copy(fontSize = fontSize.value.sp)
+        } else {
+            MaterialTheme.typography.titleLarge
+        },
         color = cssColor ?: MaterialTheme.colorScheme.onSurface,
     )
 }
 
 @Composable
 private fun SlotContext.SearchButton() {
-    IconButton(onClick = onOpenSearch) {
+    val css = LocalComponentCss.current
+    val iconSize = css["size"]?.let { parseCssDp(it) } ?: 24.dp
+    IconButton(onClick = onOpenSearch, modifier = Modifier.size(iconSize)) {
         Icon(
             painter = painterResource(R.drawable.ic_search),
             contentDescription = stringResource(R.string.search),
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }
 
 @Composable
 private fun SlotContext.SettingButton() {
-    IconButton(onClick = onOpenSettings) {
+    val css = LocalComponentCss.current
+    val iconSize = css["size"]?.let { parseCssDp(it) } ?: 24.dp
+    IconButton(onClick = onOpenSettings, modifier = Modifier.size(iconSize)) {
         Icon(
             painter = painterResource(R.drawable.ic_settings),
             contentDescription = stringResource(R.string.settings),
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }
@@ -179,17 +196,105 @@ private fun SlotContext.IconComponent() {
         painter = painterResource(resId),
         contentDescription = iconName,
         tint = tintColor,
-        modifier = Modifier.size(iconSize),
+        modifier = Modifier.fillMaxSize(),
     )
+}
+ 
+// ==================== text ====================
+ 
+/**
+ * 通用文本组件 —— 通过 `extra["content"]` 指定显示内容。
+ *
+ * JSON 示例：
+ *   { "text": { "content": "Hello World" } }
+ *   { "#text@my-label": { "content": "我的标签" } }
+ *
+ * CSS 支持： `color` / `font-size` / `font-weight` / `font-style` / `text-align`
+ *   #text { color: #ffffff; font-size: 16px; font-weight: bold; }
+ */
+@Composable
+private fun SlotContext.TextComponent() {
+    val extra = LocalComponentExtra.current
+    val css = LocalComponentCss.current
+    val content = extra["content"] as? String
+
+    val cssColor = css["color"]?.let { parseCssColor(it) }
+    val fontSize = css["font-size"]?.let { parseCssDp(it) }
+    val fontWeight = css["font-weight"]?.let { parseCssFontWeight(it) }
+    val fontStyle = css["font-style"]?.let { parseCssFontStyle(it) }
+    val textAlign = css["text-align"]?.let { parseCssTextAlign(it) }
+
+    val baseStyle = MaterialTheme.typography.bodyMedium
+    val style = baseStyle.copy(
+        fontSize = fontSize?.let { it.value.sp } ?: baseStyle.fontSize,
+        fontWeight = fontWeight ?: baseStyle.fontWeight,
+        fontStyle = fontStyle ?: baseStyle.fontStyle,
+        textAlign = textAlign ?: baseStyle.textAlign,
+    )
+
+    Text(
+        text = content ?: "(text)",
+        style = style,
+        color = cssColor ?: MaterialTheme.colorScheme.onSurface,
+        overflow = TextOverflow.Ellipsis,
+        maxLines = 3,
+    )
+}
+
+/** 解析 CSS font-weight 值 */
+private fun parseCssFontWeight(value: String): FontWeight? = when (value.lowercase()) {
+    "thin" -> FontWeight.Thin
+    "extra-light", "extralight" -> FontWeight.ExtraLight
+    "light" -> FontWeight.Light
+    "normal" -> FontWeight.Normal
+    "medium" -> FontWeight.Medium
+    "semi-bold", "semibold" -> FontWeight.SemiBold
+    "bold" -> FontWeight.Bold
+    "extra-bold", "extrabold" -> FontWeight.ExtraBold
+    "black" -> FontWeight.Black
+    else -> value.toIntOrNull()?.let { FontWeight(it) }
+}
+
+/** 解析 CSS font-style 值 */
+private fun parseCssFontStyle(value: String): androidx.compose.ui.text.font.FontStyle? = when (value.lowercase()) {
+    "italic" -> androidx.compose.ui.text.font.FontStyle.Italic
+    "normal" -> androidx.compose.ui.text.font.FontStyle.Normal
+    else -> null
+}
+
+/** 解析 CSS text-align 值 */
+private fun parseCssTextAlign(value: String): TextAlign? = when (value.lowercase()) {
+    "left" -> TextAlign.Start
+    "center" -> TextAlign.Center
+    "right" -> TextAlign.End
+    else -> null
+}
+ 
+// ==================== spacer ====================
+
+/**
+ * 空白占位组件 —— 仅用于通过 CSS weight 占据空间，自身不可见。
+ * 默认 CSS：
+ *   #spacer { weight: 1; }
+ */
+@Composable
+private fun SlotContext.Spacer() {
+    // 空白占位 —— weight 由 LayoutRenderer 从 CSS 读取并应用为 Modifier.weight()
 }
 
 // ==================== tab-bar ====================
 
+/**
+ * Tab 栏组件。CSS 属性 `display` 控制布局：
+ * - `display: column` → 竖向 FilterChip 堆叠
+ * - 缺省或其他值       → 横向 PrimaryTabRow 标签栏
+ */
 @Composable
 private fun SlotContext.TabBar() {
-    if (isSlotVertical) {
-        // 竖向父 slot → FilterChip 垂直排列
-        val state = LocalBrowserState.current
+    val state = LocalBrowserState.current
+    val css = LocalComponentCss.current
+    if (css["display"] == "column") {
+        // 竖向堆叠（FilterChip）
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -214,75 +319,96 @@ private fun SlotContext.TabBar() {
                 )
             }
         }
-        return
+    } else {
+        // 横向标签栏（PrimaryTabRow）
+        PrimaryTabRow(
+            selectedTabIndex = state.selectedCategory.ordinal,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            MusicCategory.entries.forEach { category ->
+                Tab(
+                    selected = state.selectedCategory == category,
+                    onClick = { state.selectedCategory = category },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val icon = when (category) {
+                                MusicCategory.ALL -> R.drawable.ic_library_music
+                                MusicCategory.ARTIST -> R.drawable.ic_person
+                                MusicCategory.ALBUM -> R.drawable.ic_disc
+                            }
+                            Icon(
+                                painterResource(icon),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(category.displayName())
+                        }
+                    }
+                )
+            }
+        }
     }
-    MusicBrowserTabs()
 }
 
 // ==================== sort ====================
 
 @Composable
 private fun SlotContext.Sort() {
-    if (isSlotVertical) {
-        // 竖向父 slot → Column 垂直排列
-        val state = LocalBrowserState.current
-        val sortNames = listOf(
-            stringResource(R.string.sort_name),
-            stringResource(R.string.sort_duration),
-            stringResource(R.string.sort_file_size),
-            stringResource(R.string.sort_date_added),
-            stringResource(R.string.sort_file_type)
-        )
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            val summaryText = when (state.selectedCategory) {
-                MusicCategory.ALL -> stringResource(R.string.track_count, state.tracks.size)
-                MusicCategory.ARTIST -> {
-                    val groups = state.tracks.groupBy { it.artist.ifBlank { stringResource(com.winter.muplayer.ui.R.string.unknown_artist) } }
-                    stringResource(R.string.artist_count, groups.size)
-                }
-                MusicCategory.ALBUM -> {
-                    val groups = state.tracks.groupBy { it.album.ifBlank { stringResource(com.winter.muplayer.ui.R.string.unknown_album) } }
-                    stringResource(R.string.album_count, groups.size)
-                }
+    val state = LocalBrowserState.current
+    val sortNames = listOf(
+        stringResource(R.string.sort_name),
+        stringResource(R.string.sort_duration),
+        stringResource(R.string.sort_file_size),
+        stringResource(R.string.sort_date_added),
+        stringResource(R.string.sort_file_type)
+    )
+    var showSortMenu by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val summaryText = when (state.selectedCategory) {
+            MusicCategory.ALL -> stringResource(R.string.track_count, state.tracks.size)
+            MusicCategory.ARTIST -> {
+                val groups = state.tracks.groupBy { it.artist.ifBlank { stringResource(com.winter.muplayer.ui.R.string.unknown_artist) } }
+                stringResource(R.string.artist_count, groups.size)
             }
+            MusicCategory.ALBUM -> {
+                val groups = state.tracks.groupBy { it.album.ifBlank { stringResource(com.winter.muplayer.ui.R.string.unknown_album) } }
+                stringResource(R.string.album_count, groups.size)
+            }
+        }
+        Text(
+            text = summaryText,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        Box {
             Text(
-                text = summaryText,
+                text = stringResource(R.string.sort_label),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.clickable { showSortMenu = true }
             )
-            sortNames.forEachIndexed { index, name ->
-                FilterChip(
-                    selected = state.sortField == index,
-                    onClick = {
-                        if (state.sortField == index) {
-                            state.sortAsc = !state.sortAsc
-                        } else {
-                            state.sortField = index
-                            state.sortAsc = true
-                        }
-                    },
-                    label = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(sortNames[index])
-                            if (state.sortField == index) {
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = if (state.sortAsc) "▲" else "▼",
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
+            DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                sortNames.forEachIndexed { i, name ->
+                    DropdownMenuItem(
+                        text = { Text(name, fontWeight = if (state.sortField == i) FontWeight.Bold else FontWeight.Normal) },
+                        onClick = { state.sortField = i; showSortMenu = false },
+                        trailingIcon = { if (state.sortField == i) Text("✓", fontWeight = FontWeight.Bold) }
+                    )
+                }
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text(if (state.sortAsc) stringResource(R.string.sort_asc) else stringResource(R.string.sort_desc), fontWeight = FontWeight.Bold) },
+                    onClick = { state.sortAsc = !state.sortAsc; showSortMenu = false }
                 )
             }
         }
-        return
     }
-    MusicBrowserSort()
 }
 
 // ==================== playlist ====================

@@ -8,6 +8,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -346,21 +347,84 @@ private fun parseAngle(value: String): Float? {
 }
 
 /** 解析 CSS align-self 值（Row 内），null = stretch 或无效值。 */
-fun parseAlignSelfRow(value: String?): Alignment? {
+fun parseAlignSelfRow(value: String?): Alignment.Vertical? {
     return when (value) {
-        "start"  -> Alignment.Top as Alignment
-        "center" -> Alignment.CenterVertically as Alignment
-        "end"    -> Alignment.Bottom as Alignment
+        "start"  -> Alignment.Top
+        "center" -> Alignment.CenterVertically
+        "end"    -> Alignment.Bottom
         else     -> null
     }
 }
 
 /** 解析 CSS align-self 值（Column 内），null = stretch 或无效值。 */
-fun parseAlignSelfColumn(value: String?): Alignment? {
+fun parseAlignSelfColumn(value: String?): Alignment.Horizontal? {
     return when (value) {
-        "start"  -> Alignment.Start as Alignment
-        "center" -> Alignment.CenterHorizontally as Alignment
-        "end"    -> Alignment.End as Alignment
+        "start"  -> Alignment.Start
+        "center" -> Alignment.CenterHorizontally
+        "end"    -> Alignment.End
+        else     -> null
+    }
+}
+
+// ── justify-content 解析 ──
+
+/** 解析 CSS justify-content 值（Row 内），null = 无效值。 */
+fun parseJustifyContent(value: String?): Arrangement.Horizontal? {
+    return when (value) {
+        "start"         -> Arrangement.Start
+        "center"        -> Arrangement.Center
+        "end"           -> Arrangement.End
+        "space-between" -> Arrangement.SpaceBetween
+        "space-evenly"  -> Arrangement.SpaceEvenly
+        "space-around"  -> Arrangement.SpaceAround
+        else            -> null
+    }
+}
+
+/** 解析 CSS justify-content 值（Column 内），null = 无效值。 */
+fun parseJustifyContentVertical(value: String?): Arrangement.Vertical? {
+    return when (value) {
+        "start"         -> Arrangement.Top
+        "center"        -> Arrangement.Center
+        "end"           -> Arrangement.Bottom
+        "space-between" -> Arrangement.SpaceBetween
+        "space-evenly"  -> Arrangement.SpaceEvenly
+        "space-around"  -> Arrangement.SpaceAround
+        else            -> null
+    }
+}
+
+/**
+ * justify-content → Alignment.Horizontal，用于和 gap 组合。
+ * start/center/end 才有对应 Alignment，其他返回 null。
+ */
+fun parseJustifyAlignment(value: String?): Alignment.Horizontal? {
+    return when (value) {
+        "start"  -> Alignment.Start
+        "center" -> Alignment.CenterHorizontally
+        "end"    -> Alignment.End
+        else     -> null
+    }
+}
+
+/**
+ * justify-content → Alignment.Vertical，用于和 gap 组合。
+ */
+fun parseJustifyAlignmentVertical(value: String?): Alignment.Vertical? {
+    return when (value) {
+        "start"  -> Alignment.Top
+        "center" -> Alignment.CenterVertically
+        "end"    -> Alignment.Bottom
+        else     -> null
+    }
+}
+
+/** 解析 CSS content-align 属性值，用于组件渲染 Box 的内容对齐。 */
+fun parseContentAlign(value: String?): Alignment? {
+    return when (value) {
+        "start"  -> Alignment.TopStart
+        "center" -> Alignment.Center
+        "end"    -> Alignment.BottomEnd
         else     -> null
     }
 }

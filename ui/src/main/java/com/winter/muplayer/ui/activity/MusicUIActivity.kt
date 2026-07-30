@@ -190,12 +190,17 @@ class MusicUIActivity : ComponentActivity() {
         }
 
         musicPlayerCore = MusicPlayerCore.getInstance(applicationContext)
+        android.util.Log.d("WMPlayer-Perf", "获取播放器实例完成")
         com.winter.muplayer.core.AppLogger.i("UI", "MusicUIActivity.onCreate")
 
-        // setContent 之前启动 IO 线程预加载配置，消除首帧闪默认布局
-        com.winter.muplayer.config.ConfigPreload.start(applicationContext)
+        // setContent 之前同步加载缓存（首帧即用真实配置）；缓存不存在时回退后台线程
+        if (!com.winter.muplayer.config.ConfigPreload.loadIfCached(applicationContext)) {
+            com.winter.muplayer.config.ConfigPreload.start(applicationContext)
+        }
+        android.util.Log.d("WMPlayer-Perf", "配置加载完成")
 
         setContent {
+            android.util.Log.d("WMPlayer-Perf", "setContent 开始")
             val settings = musicPlayerCore.settings
             var currentThemeMode by remember { mutableStateOf(settings.themeMode) }
             var currentDynamicColor by remember { mutableStateOf(settings.dynamicColorEnabled) }
@@ -241,6 +246,7 @@ fun MusicPlayerApp(
     onSettingChanged: () -> Unit = {},
     onSetPlayMode: (PlayMode) -> Unit = {}
 ) {
+    android.util.Log.d("WMPlayer-Perf", "MusicPlayerApp 开始组合")
     val playerState by musicPlayerCore.playerState.collectAsState()
     val playMode by musicPlayerCore.playMode.collectAsState()
     val queue by musicPlayerCore.queueManager.queue.collectAsState()
@@ -267,7 +273,7 @@ fun MusicPlayerApp(
     // ── 组件配置系统（JSON 布局 + CSS 样式） ──
     // 内置组件必须在 SlotRenderer 组合之前注册，否则首帧渲染时
     // registry 为空，所有组件跳过渲染，之后普通 map 更新无法触发重组。
-    registerBuiltInComponents()
+    remember { registerBuiltInComponents() }
 
     val configLoader = remember { StyleConfigLoader(context) }
     val configState by configLoader.config.collectAsState()
@@ -281,54 +287,48 @@ fun MusicPlayerApp(
     val scanner = remember { LocalMusicScanner(context) }
     var coverCacheSize by remember { mutableStateOf("0 KB") }
 
-    // 首次加载：磁盘缓存 → 快速首屏 → 全量扫描（不阻塞 UI 首帧）
+    // 首次加载：先扫 50 首极速显示（~5ms），后台再加载全量缓存/扫描
     LaunchedEffect(Unit) {
-        // 0. 后台加载上次扫描的磁盘缓存，不阻塞首帧组合
+        android.util.Log.d("WMPlayer-Perf", "LaunchedEffect 开始")
         browserState.isLoading = true
-        val cached = withContext(Dispatchers.IO) { scanner.getCachedTracks() }
 
-        // 1. 权限检查：无权限则跳过扫描（保留磁盘缓存中的旧结果）
-        if (Build.VERSION.SDK_INT >= 33) {
-            val permissionGranted = android.Manifest.permission.READ_MEDIA_AUDIO.let { perm ->
-                androidx.core.content.ContextCompat.checkSelfPermission(
-                    context, perm
-                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            }
-            if (!permissionGranted) {
-                browserState.tracks = cached
-                browserState.isLoading = false
-                return@LaunchedEffect
-            }
-        }
+        // 1. 权限检查：无权限则只能读缓存
+        val hasPermission = Build.VERSION.SDK_INT < 33 ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.READ_MEDIA_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-        if (cached.isNotEmpty()) {
-            // ── 有磁盘缓存：直接用，无需扫描 ──
+        if (!hasPermission) {
+            val cached = withContext(Dispatchers.IO) { scanner.getCachedTracks() }
             browserState.tracks = cached
             browserState.isLoading = false
-            musicPlayerCore.restorePlaybackState(cached)
-            launch(Dispatchers.IO) {
-                cacheCoverFiles(context, cached, coverCache)
-                withContext(Dispatchers.Main) {
-                    coverCacheSize = computeCoverCacheSize(context)
-                }
-            }
-        } else {
-            // ── 首次启动：分阶段扫描 ──
-            // 阶段①：快速扫前 300 首，立即显示
-            browserState.isLoading = true
-            val quickTracks = withContext(Dispatchers.IO) { scanner.scanFast() }
-            browserState.tracks = quickTracks
-            browserState.isLoading = false
+            return@LaunchedEffect
+        }
 
-            // 阶段②：后台全量扫描，完成后覆盖
-            val allTracks = withContext(Dispatchers.IO) { scanner.scanFull() }
+        // 2. 阶段①：MediaStore 快扫 50 首 —— 纯 SQLite 索引扫描，~5ms
+        android.util.Log.d("WMPlayer-Perf", "scanFast(50) 开始")
+        val fastTracks = withContext(Dispatchers.IO) { scanner.scanFast(50) }
+        android.util.Log.d("WMPlayer-Perf", "scanFast(50) 完成: ${fastTracks.size} 首")
+        browserState.tracks = fastTracks
+        browserState.isLoading = false
+
+        // 3. 阶段②：后台加载全量磁盘缓存（若有）或全量扫描
+        val allTracks = withContext(Dispatchers.IO) {
+            val cached = scanner.getCachedTracks()
+            if (cached.isNotEmpty()) cached
+            else scanner.scanFull()
+        }
+
+        if (allTracks.size > fastTracks.size) {
             browserState.tracks = allTracks
-            musicPlayerCore.restorePlaybackState(allTracks)
-            launch(Dispatchers.IO) {
-                cacheCoverFiles(context, allTracks, coverCache)
-                withContext(Dispatchers.Main) {
-                    coverCacheSize = computeCoverCacheSize(context)
-                }
+        }
+        musicPlayerCore.restorePlaybackState(allTracks)
+
+        // 4. 封面缓存（后台不阻塞）
+        launch(Dispatchers.IO) {
+            cacheCoverFiles(context, allTracks, coverCache)
+            withContext(Dispatchers.Main) {
+                coverCacheSize = computeCoverCacheSize(context)
             }
         }
     }
@@ -400,7 +400,7 @@ fun MusicPlayerApp(
                         slots = configState.slots,
                         css = cssRules,
                         customComponents = configState.customComponents,
-                        debug = true,
+                        debug = false,
                         context = SlotContext(
                             slotName = "",
                             onOpenSearch = { showSearchScreen = true },
@@ -1966,49 +1966,7 @@ private suspend fun loadCoverIfNeeded(
 
 // ==================== 辅助函数 ====================
 
-/**
- * 后台缓存封面文件到磁盘。
- * 在 IO 线程调用，每首歌存一个 .jpg 到 cache/covers/。
- */
-private suspend fun cacheCoverFiles(
-    context: android.content.Context,
-    tracks: List<Track>,
-    coverCache: MutableMap<Long, String>
-) {
-    for (track in tracks) {
-        if (coverCache.containsKey(track.id)) continue
-        val cacheDir = java.io.File(context.cacheDir, "covers")
-        cacheDir.mkdirs()
-        val coverFile = java.io.File(cacheDir, "${track.id}.jpg")
-        // 文件已存在 → 跳过 I/O，直接填缓存
-        if (coverFile.exists()) {
-            coverCache[track.id] = coverFile.absolutePath
-            continue
-        }
-        try {
-            if (track.albumId > 0L) {
-                val albumArtUri = android.net.Uri.parse(
-                    "content://media/external/audio/albumart/${track.albumId}"
-                )
-                context.contentResolver.openInputStream(albumArtUri)?.use { input ->
-                    coverFile.outputStream().use { output -> input.copyTo(output) }
-                    coverCache[track.id] = coverFile.absolutePath
-                }
-            } else {
-                val filePath = track.uri.removePrefix("file://")
-                val retriever = android.media.MediaMetadataRetriever()
-                try {
-                    retriever.setDataSource(filePath)
-                    val picture = retriever.embeddedPicture ?: continue
-                    coverFile.writeBytes(picture)
-                    coverCache[track.id] = coverFile.absolutePath
-                } finally {
-                    retriever.release()
-                }
-            }
-        } catch (_: Exception) { }
-    }
-}
+// cacheCoverFiles 已迁移到 com.winter.muplayer.ui.components.Utils.kt
 
 /**
  * 计算封面缓存目录的大小，返回人类可读的字符串。

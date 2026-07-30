@@ -6,8 +6,6 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.winter.muplayer.model.Track
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
@@ -117,28 +115,47 @@ class LocalMusicScanner(
         val file = getCacheFile()
         if (!file.exists()) return emptyList()
         return try {
-            val json = JSONObject(file.readText())
-            val arr = json.optJSONArray("tracks") ?: JSONArray()
-            val list = mutableListOf<Track>()
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                list.add(
-                    Track(
-                        id = obj.getLong("id"),
-                        title = obj.getString("title"),
-                        artist = obj.optString("artist", "未知艺术家"),
-                        album = obj.optString("album", "未知专辑"),
-                        duration = obj.getLong("duration"),
-                        uri = obj.getString("uri"),
-                        albumId = obj.optLong("albumId", 0L),
-                        fileSize = obj.optLong("fileSize", 0L),
-                        dateAdded = obj.optLong("dateAdded", 0L)
-                    )
-                )
+            // 流式手解析：不构建 DOM 树，按行扫描 Json 对象
+            val text = file.readText()
+            val result = mutableListOf<Track>()
+            // 简单扫描 { "id": ..., "title": "..." } 模式
+            var i = text.indexOf('{', text.indexOf("\"tracks\""))
+            while (i >= 0) {
+                val end = text.indexOf('}', i)
+                if (end < 0) break
+                val obj = text.substring(i, end + 1)
+                fun field(name: String): String {
+                    val key = "\"$name\""
+                    val ki = obj.indexOf(key) ?: return ""
+                    val vi = ki + key.length
+                    val colon = obj.indexOf(':', vi) ?: return ""
+                    val start = colon + 1
+                    val trimmed = obj.drop(start).trimStart()
+                    return when {
+                        trimmed.startsWith('"') -> {
+                            val close = trimmed.indexOf('"', 1)
+                            if (close > 0) trimmed.substring(1, close) else ""
+                        }
+                        else -> trimmed.takeWhile { it.isDigit() || it == '-' }
+                    }
+                }
+                val id = field("id").toLongOrNull() ?: 0L
+                val title = field("title")
+                result.add(Track(
+                    id = id,
+                    title = title.ifEmpty { "未知" },
+                    artist = field("artist").ifEmpty { "未知艺术家" },
+                    album = field("album").ifEmpty { "未知专辑" },
+                    duration = field("duration").toLongOrNull() ?: 0L,
+                    uri = field("uri"),
+                    albumId = field("albumId").toLongOrNull() ?: 0L,
+                    fileSize = field("fileSize").toLongOrNull() ?: 0L,
+                    dateAdded = field("dateAdded").toLongOrNull() ?: 0L
+                ))
+                i = text.indexOf('{', end)
             }
-            list
+            result
         } catch (_: Exception) {
-            // 缓存文件损坏，删除后重新扫描
             file.delete()
             emptyList()
         }
@@ -146,32 +163,41 @@ class LocalMusicScanner(
 
     private fun saveToDisk(tracks: List<Track>) {
         try {
-            val arr = JSONArray()
-            for (track in tracks) {
-                arr.put(
-                    JSONObject().apply {
-                        put("id", track.id)
-                        put("title", track.title)
-                        put("artist", track.artist)
-                        put("album", track.album)
-                        put("duration", track.duration)
-                        put("uri", track.uri)
-                        put("albumId", track.albumId)
-                        put("fileSize", track.fileSize)
-                        put("dateAdded", track.dateAdded)
-                    }
-                )
+            val sb = StringBuilder(1024 * 1024) // 预分配 1MB
+            sb.append("{\"version\":1,\"count\":").append(tracks.size).append(",\"tracks\":[")
+            for ((idx, t) in tracks.withIndex()) {
+                if (idx > 0) sb.append(',')
+                sb.append("{\"id\":").append(t.id)
+                    .append(",\"title\":").append(escape(t.title))
+                    .append(",\"artist\":").append(escape(t.artist))
+                    .append(",\"album\":").append(escape(t.album))
+                    .append(",\"duration\":").append(t.duration)
+                    .append(",\"uri\":").append(escape(t.uri))
+                    .append(",\"albumId\":").append(t.albumId)
+                    .append(",\"fileSize\":").append(t.fileSize)
+                    .append(",\"dateAdded\":").append(t.dateAdded)
+                    .append('}')
             }
-            getCacheFile().writeText(
-                JSONObject().apply {
-                    put("version", 1)
-                    put("count", tracks.size)
-                    put("tracks", arr)
-                }.toString()
-            )
-        } catch (_: Exception) {
-            // 写入失败不阻塞主流程，下次扫描时重试
+            sb.append("]}")
+            getCacheFile().writeText(sb.toString())
+        } catch (_: Exception) { }
+    }
+
+    private fun escape(s: String): String {
+        val sb = StringBuilder(s.length + 8)
+        sb.append('"')
+        for (c in s) {
+            when (c) {
+                '\\' -> sb.append("\\\\")
+                '"' -> sb.append("\\\"")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                else -> sb.append(c)
+            }
         }
+        sb.append('"')
+        return sb.toString()
     }
 
     // ==================== MediaStore 扫描 ====================

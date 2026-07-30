@@ -18,7 +18,7 @@ import java.io.File
  * 支持 `"include": ["style.json"]` 显式引用其他 JSON 文件，支持嵌套 include，
  * visited 集合检测循环引用。
  *
- * JSON 根级 key 即为 slot 名，value 为布局树。
+ * slot 排列顺序由 "slots" 数组的索引决定，不依赖 JSON object key 顺序。
  * JSON 只描述结构（type / children / class），所有样式由 CSS class 控制。
  */
 class StyleConfigLoader(private val context: Context) {
@@ -50,32 +50,11 @@ class StyleConfigLoader(private val context: Context) {
             cssRules = _cssRules.asStateFlow()
             fileLastModified = System.currentTimeMillis()
         } else {
-            // 缓存未命中 → 同步预加载（回退方案）
-            val mainFile = File(configDir, "main.json")
-            if (mainFile.isFile) {
-                var preloadedCss = CssRuleTable()
-                var preloadedMod = mainFile.lastModified()
-                val preloadedCfg = try {
-                    val (merged, latestMod) = resolveWithIncludes(mainFile, mutableSetOf())
-                    if (latestMod > preloadedMod) preloadedMod = latestMod
-                    preloadedCss = loadCssFiles()
-                    fileLastModified = preloadedMod
-                    parseConfigObject(merged)
-                } catch (e: Exception) {
-                    android.util.Log.w("StyleConfig", "Preload failed: ${e.message}")
-                    fileLastModified = 0L
-                    ComponentLayout()
-                }
-                _config = MutableStateFlow(preloadedCfg)
-                _cssRules = MutableStateFlow(preloadedCss)
-                config = _config.asStateFlow()
-                cssRules = _cssRules.asStateFlow()
-            } else {
-                _config = MutableStateFlow(ComponentLayout())
-                _cssRules = MutableStateFlow(CssRuleTable())
-                config = _config.asStateFlow()
-                cssRules = _cssRules.asStateFlow()
-            }
+            // 缓存未命中 → 跳同步读文件，用空默认值，initialize() 负责异步加载
+            _config = MutableStateFlow(ComponentLayout())
+            _cssRules = MutableStateFlow(CssRuleTable())
+            config = _config.asStateFlow()
+            cssRules = _cssRules.asStateFlow()
         }
     }
 
@@ -147,7 +126,7 @@ class StyleConfigLoader(private val context: Context) {
         resolveWithIncludesStatic(file, configDir, visited)
 
     /**
-     * 将默认配置写入磁盘（创建 config/main.json + style.json）。
+     * 将默认配置写入磁盘（创建 config/main.json + style.css）。
      * 文件已存在时跳过。
      */
     fun writeDefaultsIfMissing() {
@@ -159,15 +138,36 @@ class StyleConfigLoader(private val context: Context) {
         if (!mainFile.exists()) {
             mainFile.writeText(buildString {
                 appendLine("{")
-                appendLine("  // slots 数组定义界面 slot 及排列顺序，数组元素位置即渲染顺序")
+                appendLine("  // slots 数组决定 slot 渲染顺序，数组索引即位置")
                 appendLine("  // 样式在 styles.css 中定义")
                 appendLine("  \"slots\": [")
-                appendLine("    { \"app-top\": [\"#app-name\", \"#search-button\", \"#setting-button\", \"#search-bar\"] },")
-                appendLine("    { \"app-center\": [\"#tab-bar\", \"#sort\", \"#playlist\"] },")
-                appendLine("    { \"app-bottom\": [\"#playbar\"] }")
+                appendLine("    {")
+                appendLine("      \"app-top\": [")
+                appendLine("        \"app-name\",")
+                appendLine("        \"spacer\",")
+                appendLine("        \"search-button\",")
+                appendLine("        \"setting-button\"")
+                appendLine("      ]")
+                appendLine("    },")
+                appendLine("    {")
+                appendLine("      \"app-center\": [")
+                appendLine("        \"tab-bar\",")
+                appendLine("        \"sort\",")
+                appendLine("        \"playlist\"")
+                appendLine("      ]")
+                appendLine("    },")
+                appendLine("    {")
+                appendLine("      \"app-bottom\": [")
+                appendLine("        \"playbar\"")
+                appendLine("      ]")
+                appendLine("    }")
                 appendLine("  ],")
-                appendLine("  // 全屏播放器 slot")
-                appendLine("  \"main\": [\"#track-info\", \"#progress-bar\", \"#controls-row\"]")
+                appendLine("  // 全屏播放器 slot，独立于界面 slots")
+                appendLine("  \"main\": [")
+                appendLine("    \"track-info\",")
+                appendLine("    \"progress-bar\",")
+                appendLine("    \"controls-row\"")
+                appendLine("  ]")
                 appendLine("}")
             })
         }
@@ -184,10 +184,11 @@ class StyleConfigLoader(private val context: Context) {
                 appendLine("/* slot 内部组件排列方向：arrange: row | column */")
                 appendLine("/* slot 比例：weight: 1（默认均分）| 0（包裹内容）| 2、3... */")
                 appendLine("")
-                appendLine(".main { arrange: column; gap: 8px; }")
-                appendLine(".app-top { arrange: row; weight: 0; }")
-                appendLine(".app-center { arrange: column; }")
-                appendLine(".app-bottom { arrange: row; weight: 0; }")
+                appendLine(".main       { arrange: column; gap: 8px; }")
+                appendLine(".app-top    { arrange: row;    weight: 0; }")
+                appendLine("#spacer     { weight: 1; }")
+                appendLine(".app-center { arrange: column; weight: 1; }")
+                appendLine(".app-bottom { arrange: row;    weight: 0; }")
             })
         }
     }
@@ -224,7 +225,7 @@ class StyleConfigLoader(private val context: Context) {
                 }
             }
 
-            // ── 主界面 slots ──
+            // ── 主界面 slots（仅认 "slots" 数组，不依赖 object key 顺序）──
             val slotsArray = root.optJSONArray("slots")
             if (slotsArray != null) {
                 for (i in 0 until slotsArray.length()) {
@@ -235,15 +236,6 @@ class StyleConfigLoader(private val context: Context) {
                     val entries = LayoutParser.parseSlotValue(element.get(slotName))
                     if (entries.isNotEmpty()) {
                         slots[slotName] = entries
-                    }
-                }
-            } else {
-                for (key in root.keys()) {
-                    if (key == "include" || key == "main" || key.startsWith("#")) continue
-                    val value = root.get(key)
-                    val entries = LayoutParser.parseSlotValue(value)
-                    if (entries.isNotEmpty()) {
-                        slots[key] = entries
                     }
                 }
             }

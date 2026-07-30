@@ -9,8 +9,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 
 private const val TAG = "WMPlayer-Playlist"
@@ -185,25 +183,32 @@ class PlaylistManager(context: Context) {
             return
         }
         try {
-            val json = JSONObject(file.readText())
-            nextId = json.optLong("nextId", 1L)
-            val arr = json.optJSONArray("playlists") ?: JSONArray()
+            val text = file.readText()
+            nextId = text.substringAfter("\"nextId\":")
+                .substringBefore(',').trim().toLongOrNull() ?: 1L
             val list = mutableListOf<Playlist>()
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                val trackIdsArr = obj.optJSONArray("trackIds") ?: JSONArray()
-                val trackIds = mutableListOf<Long>()
-                for (j in 0 until trackIdsArr.length()) {
-                    trackIds.add(trackIdsArr.getLong(j))
-                }
-                list.add(
-                    Playlist(
-                        id = obj.getLong("id"),
-                        name = obj.getString("name"),
-                        trackIds = trackIds,
-                        createTime = obj.getLong("createTime")
-                    )
-                )
+            val arrStart = text.indexOf("\"playlists\":[") ?: return
+            val arrEnd = text.lastIndexOf(']') ?: return
+            val content = text.substring(arrStart + 13, arrEnd)
+            var pos = 0
+            while (true) {
+                val ob = content.indexOf('{', pos)
+                if (ob < 0) break
+                val cb = content.indexOf('}', ob)
+                if (cb < 0) break
+                val entry = content.substring(ob, cb + 1)
+                val id = entry.substringAfter("\"id\":")
+                    .substringBefore(',').trim().toLongOrNull() ?: 0L
+                val name = entry.substringAfter("\"name\":\"")
+                    .substringBefore('"')
+                val createTime = entry.substringAfter("\"createTime\":")
+                    .substringBefore('}').trim().toLongOrNull() ?: 0L
+                val ids = entry.substringAfter("\"trackIds\":[")
+                    .substringBefore(']')
+                    .split(',')
+                    .mapNotNull { it.trim().toLongOrNull() }
+                list.add(Playlist(id, name, ids, createTime))
+                pos = cb + 1
             }
             _playlists.value = list
         } catch (e: Exception) {
@@ -219,26 +224,21 @@ class PlaylistManager(context: Context) {
      */
     private fun save() {
         try {
-            val arr = JSONArray()
-            for (playlist in _playlists.value) {
-                val trackIdsArr = JSONArray()
-                for (tid in playlist.trackIds) {
-                    trackIdsArr.put(tid)
-                }
-                arr.put(
-                    JSONObject().apply {
-                        put("id", playlist.id)
-                        put("name", playlist.name)
-                        put("trackIds", trackIdsArr)
-                        put("createTime", playlist.createTime)
-                    }
-                )
+            val sb = StringBuilder(1024 * 16)
+            sb.append("{\"nextId\":").append(nextId).append(",\"playlists\":[")
+            var first = true
+            for (p in _playlists.value) {
+                if (!first) sb.append(',')
+                first = false
+                sb.append("{\"id\":").append(p.id)
+                    .append(",\"name\":\"").append(p.name.replace("\"", "\\\""))
+                    .append("\",\"trackIds\":[")
+                    .append(p.trackIds.joinToString(","))
+                    .append("],\"createTime\":").append(p.createTime)
+                    .append('}')
             }
-            val json = JSONObject().apply {
-                put("nextId", nextId)
-                put("playlists", arr)
-            }
-            file.writeText(json.toString(2))
+            sb.append("]}")
+            file.writeText(sb.toString())
         } catch (e: Exception) {
             Log.e(TAG, "save: failed to write playlists.json", e)
         }

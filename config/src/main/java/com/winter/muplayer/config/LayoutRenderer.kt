@@ -96,8 +96,12 @@ private fun SlotRendererBody(
         val gapDp = slotCss["gap"]?.let { parseDpValue(it) }
 
         val weight = rawWeight ?: 1f
-        // weight: 0 时内部 Row/Column 不应 fillMaxHeight，否则会抢走所有空间
-        val fillHeight = rawWeight == null || rawWeight > 0f
+        // weight: 0 时内部 Row/Column 不应 fillMaxWidth/fillMaxHeight，否则会抢走所有空间
+        val hasWeight = rawWeight == null || rawWeight > 0f
+        // 内层 Row/Column 始终填充插槽 Box 的交叉轴尺寸。
+        // fillWidth/fillHeight 用于外层 slot 级 weight，不影响内层容器是否填满。
+        val fillHeight = if (arrange == "horizontal" || arrange == "row") hasWeight else true
+        val fillWidth = if (arrange == "horizontal" || arrange == "row") true else hasWeight
         // slot 级 weight 由外层 Row/Column scope 捕获的 weightFn 提供
         val slotMod: Modifier = when {
             rawWeight == null -> weightFn(1f)      // 未设 → 默认平分
@@ -134,13 +138,22 @@ private fun SlotRendererBody(
             val content: @Composable () -> Unit = {
                 if (arrange == "horizontal" || arrange == "row") {
                     Row(
-                        modifier = Modifier.fillMaxWidth().let { if (fillHeight) it.fillMaxHeight() else it },
+                        modifier = Modifier.let { if (fillWidth) it.fillMaxWidth() else it }
+                                           .let { if (fillHeight) it.fillMaxHeight() else it },
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = if (gapDp != null) Arrangement.spacedBy(gapDp) else Arrangement.Start,
+                        horizontalArrangement = run {
+                            val jc = slotCss["justify-content"]
+                            val align = parseJustifyAlignment(jc)
+                            if (align != null && gapDp != null) {
+                                Arrangement.spacedBy(gapDp, align)
+                            } else {
+                                parseJustifyContent(jc) ?: if (gapDp != null) Arrangement.spacedBy(gapDp) else Arrangement.Start
+                            }
+                        },
                     ) {
                         // ═══ RowScope 内，weight() 可用 ═══
                         for (entry in components) {
-                            val compCss = css.rules["#${entry.id}"] ?: css.rules[entry.id] ?: emptyMap()
+                            val compCss = resolveComponentCss(entry, css)
                             val mod = compCssModifier(compCss).let { m ->
                                 if (debug) {
                                     componentIndex++
@@ -164,6 +177,7 @@ private fun SlotRendererBody(
                                 LocalSlotContext provides context.copy(slotName = slotName, slotArrange = arrange),
                                 LocalComponentExtra provides entry.extra,
                                 LocalComponentCss provides compCss,
+                                LocalComponentCid provides entry.cid,
                             ) {
                                 val renderer: @Composable (Modifier) -> Unit = { mod ->
                                     val children = entry.extra["children"]
@@ -186,46 +200,45 @@ private fun SlotRendererBody(
                                         val def = customComponents[entry.id]
                                         if (def != null && def["icon"] is String) {
                                             renderCustomIcon(def, mod)
+                                        } else if (entry.isCustom) {
+                                            android.util.Log.w("SlotRenderer", "Custom component #${entry.id} not defined in JSON — skipping (remove # for native or define it)")
                                         } else {
-                                            if (entry.isCustom) {
-                                                android.util.Log.w("SlotRenderer", "Custom component #${entry.id} not defined in JSON — falling back to built-in")
-                                            }
                                             ComponentRegistry.render(entry.id, mod)
                                         }
                                     }
                                 }
                                 val alignSelf = compCss["align-self"]
-                                val renderWithAlign: @Composable () -> Unit = {
-                                    when (alignSelf) {
-                                        "stretch" -> renderer(weightMod.fillMaxWidth())
-                                        else -> {
-                                            val align = parseAlignSelfRow(alignSelf)
-                                            if (align != null) {
-                                                Box(modifier = weightMod, contentAlignment = align) {
-                                                    renderer(Modifier)
-                                                }
-                                            } else {
-                                                renderer(weightMod)
-                                            }
-                                        }
-                                    }
+                                val rowAlign = parseAlignSelfRow(alignSelf)
+                                val finalMod = if (rowAlign != null) {
+                                    weightMod.align(rowAlign)
+                                } else {
+                                    weightMod  // stretch 或未设 → 默认填满交叉轴
                                 }
                                 if (animWrapper != null) {
-                                    animWrapper(weightMod) { renderWithAlign() }
+                                    animWrapper(finalMod) { renderer(Modifier) }
                                 } else {
-                                    renderWithAlign()
+                                    renderer(finalMod)
                                 }
                             }
                         }
                     }
                 } else {
                     Column(
-                        modifier = Modifier.fillMaxWidth().let { if (fillHeight) it.fillMaxHeight() else it },
-                        verticalArrangement = if (gapDp != null) Arrangement.spacedBy(gapDp) else Arrangement.Top,
+                        modifier = Modifier.let { if (fillWidth) it.fillMaxWidth() else it }
+                                           .let { if (fillHeight) it.fillMaxHeight() else it },
+                        verticalArrangement = run {
+                            val jc = slotCss["justify-content"]
+                            val align = parseJustifyAlignmentVertical(jc)
+                            if (align != null && gapDp != null) {
+                                Arrangement.spacedBy(gapDp, align)
+                            } else {
+                                parseJustifyContentVertical(jc) ?: if (gapDp != null) Arrangement.spacedBy(gapDp) else Arrangement.Top
+                            }
+                        },
                     ) {
                         // ═══ ColumnScope 内，weight() 可用 ═══
                         for (entry in components) {
-                            val compCss = css.rules["#${entry.id}"] ?: css.rules[entry.id] ?: emptyMap()
+                            val compCss = resolveComponentCss(entry, css)
                             val mod = compCssModifier(compCss).let { m ->
                                 if (debug) {
                                     componentIndex++
@@ -249,6 +262,7 @@ private fun SlotRendererBody(
                                 LocalSlotContext provides context.copy(slotName = slotName, slotArrange = arrange),
                                 LocalComponentExtra provides entry.extra,
                                 LocalComponentCss provides compCss,
+                                LocalComponentCid provides entry.cid,
                             ) {
                                 val renderer: @Composable (Modifier) -> Unit = { mod ->
                                     val children = entry.extra["children"]
@@ -271,34 +285,24 @@ private fun SlotRendererBody(
                                         val def = customComponents[entry.id]
                                         if (def != null && def["icon"] is String) {
                                             renderCustomIcon(def, mod)
+                                        } else if (entry.isCustom) {
+                                            android.util.Log.w("SlotRenderer", "Custom component #${entry.id} not defined in JSON — skipping (remove # for native or define it)")
                                         } else {
-                                            if (entry.isCustom) {
-                                                android.util.Log.w("SlotRenderer", "Custom component #${entry.id} not defined in JSON — falling back to built-in")
-                                            }
                                             ComponentRegistry.render(entry.id, mod)
                                         }
                                     }
                                 }
                                 val alignSelf = compCss["align-self"]
-                                val renderWithAlign: @Composable () -> Unit = {
-                                    when (alignSelf) {
-                                        "stretch" -> renderer(weightMod.fillMaxWidth())
-                                        else -> {
-                                            val align = parseAlignSelfColumn(alignSelf)
-                                            if (align != null) {
-                                                Box(modifier = weightMod, contentAlignment = align) {
-                                                    renderer(Modifier)
-                                                }
-                                            } else {
-                                                renderer(weightMod)
-                                            }
-                                        }
-                                    }
+                                val columnAlign = parseAlignSelfColumn(alignSelf)
+                                val finalMod = if (columnAlign != null) {
+                                    weightMod.align(columnAlign)
+                                } else {
+                                    weightMod  // stretch 或未设 → 默认填满交叉轴
                                 }
                                 if (animWrapper != null) {
-                                    animWrapper(weightMod) { renderWithAlign() }
+                                    animWrapper(finalMod) { renderer(Modifier) }
                                 } else {
-                                    renderWithAlign()
+                                    renderer(finalMod)
                                 }
                             }
                         }
@@ -352,6 +356,14 @@ private fun renderCustomIcon(
         tint = tintColor,
         modifier = modifier.size(iconSize),
     )
+}
+
+/** 解析组件 CSS：type 规则为基底，cid 规则覆盖（同名属性以 cid 为准）。 */
+private fun resolveComponentCss(entry: ComponentEntry, css: CssRuleTable): Map<String, String> {
+    val base = css.rules["#${entry.id}"] ?: css.rules[entry.id] ?: emptyMap()
+    val cid = entry.cid ?: return base
+    val cidRules = css.rules["#${cid}"] ?: return base
+    return base + cidRules
 }
 
 /** 从 CSS 属性构建组件级别的 Modifier（视觉样式，不含 weight——weight 在 [SlotRendererBody] 行内处理） */

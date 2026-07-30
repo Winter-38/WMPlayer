@@ -7,13 +7,17 @@ import java.io.File
 /**
  * JSON 布局配置文件解析器。
  *
- * 每个 slot value 是组件数组。每项支持两种格式：
- * - 字符串：`"#app-name"` → ComponentEntry("app-name")
- * - 对象（有 type）：
- *   `{ "type": "#button", "action": "play", "label": "Go" }`
- *   → ComponentEntry("button", {"action": "play", "label": "Go"})
- *   其中 type / class / name / children 为保留 key，不进入 extra
- * - 对象（无 type，且所有 value 都是数组）：
+ * 每个 slot value 是组件数组，每项支持两种格式：
+ * - 字符串：`"app-name"` → ComponentEntry("app-name", isCustom=false)
+ *           `"#my-button"` → ComponentEntry("my-button", isCustom=true)
+ *           `"#my-button@my-id"` → ComponentEntry("my-button", cid="my-id", isCustom=true)
+ * - 对象（单 key，value 是对象）：
+ *   `{ "#button": { "action": "play" } }` → 自定义组件（# 前缀）
+ *   `{ "icon": { "icon": "ic_search" } }` → 内置组件（无 # 前缀）
+ *   `{ "#icon@search-icon": { "icon": "ic_search" } }` → 带 cid（@ 语法）
+ *   cid 只能从 key 的 @ 语法取，value 中声明无效
+ *   保留 key（不进 extra）：class / name / children
+ * - 对象（多 key 或所有 value 都是数组）：
  *   `{ "top-row": ["#tab-bar"], "body": ["#playlist"] }`
  *   → 自动视为子 slot 字典，等效于嵌入一个容器组件
  */
@@ -35,32 +39,52 @@ object LayoutParser {
             val item = arr.get(i)
             when (item) {
                 is String -> {
-                    val id = normalizeId(item)
-                    if (id.isNotBlank()) result.add(ComponentEntry(id, isCustom = item.startsWith("#")))
+                    val isCustom = item.startsWith("#")
+                    val raw = normalizeId(item)
+                    if (raw.isBlank()) continue
+                    // 支持 "name@cid" 简写
+                    val (id, cid) = splitAt(raw, '@')
+                    if (id.isNotBlank()) result.add(ComponentEntry(id, cid = cid, isCustom = isCustom))
                 }
                 is JSONObject -> {
-                    val type = item.optString("type", "").takeIf { it.isNotBlank() }
-                    if (type == null) {
-                        // 无 type → 尝试作为子 slot 字典（每个 value 都应是数组）
-                        val childSlots = parseChildrenMap(item)
-                        if (childSlots.isNotEmpty()) {
-                            result.add(ComponentEntry("__slot__", mapOf("children" to childSlots)))
+                    val keys = item.keys().asSequence().toList()
+                    val firstKey = keys.firstOrNull()
+
+                    if (keys.size == 1 && firstKey != null) {
+                        val value = item.get(firstKey)
+                        if (value is JSONObject) {
+                            // 组件声明：{ "#icon@search-icon": { "icon": "ic_search" } }
+                            // cid 只能从 key 的 @ 语法取，不允许在 value 里声明
+                            val isCustom = firstKey.startsWith("#")
+                            val raw = normalizeId(firstKey)
+                            if (raw.isBlank()) continue
+                            val (id, cid) = splitAt(raw, '@')
+                            if (id.isBlank()) continue
+                            val extra = mutableMapOf<String, Any?>()
+                            for (k in value.keys()) {
+                                when (k) {
+                                    "class", "name", "children" -> { /* 保留 key */ }
+                                    else -> extra[k] = value.get(k)
+                                }
+                            }
+                            val rawChildren = value.optJSONObject("children")
+                            if (rawChildren != null) {
+                                extra["children"] = parseChildrenMap(rawChildren)
+                            }
+                            result.add(ComponentEntry(id, cid = cid, extra = extra, isCustom = isCustom))
+                        } else {
+                            // value 不是对象 → 尝试作为子 slot 字典
+                            val childSlots = parseChildrenMap(item)
+                            if (childSlots.isNotEmpty()) {
+                                result.add(ComponentEntry("__slot__", extra = mapOf("children" to childSlots)))
+                            }
                         }
                     } else {
-                        // 有 type → 组件对象
-                        val id = normalizeId(type)
-                        if (id.isBlank()) continue
-                        val extra = mutableMapOf<String, Any?>()
-                        for (key in item.keys()) {
-                            if (key in setOf("type", "class", "name", "children")) continue
-                            extra[key] = item.get(key)
+                        // 多 key → 子 slot 字典：{ "top-row": ["#tab-bar"], "body": ["#playlist"] }
+                        val childSlots = parseChildrenMap(item)
+                        if (childSlots.isNotEmpty()) {
+                            result.add(ComponentEntry("__slot__", extra = mapOf("children" to childSlots)))
                         }
-                        // 解析 children 嵌套子 slot（与顶层 slot 格式一致）
-                        val rawChildren = item.optJSONObject("children")
-                        if (rawChildren != null) {
-                            extra["children"] = parseChildrenMap(rawChildren)
-                        }
-                        result.add(ComponentEntry(id, extra))
                     }
                 }
             }
@@ -90,6 +114,16 @@ object LayoutParser {
     /** 去掉可选的 # 前缀 */
     private fun normalizeId(s: String): String =
         if (s.startsWith("#")) s.substring(1) else s
+
+    /**
+     * 按分隔符拆分字符串，返回 (prefix, suffixOrNull)。
+     * 如 "icon@search-icon" → ("icon", "search-icon")；"icon" → ("icon", null)
+     */
+    private fun splitAt(s: String, sep: Char): Pair<String, String?> {
+        val idx = s.indexOf(sep)
+        return if (idx >= 0) s.substring(0, idx) to s.substring(idx + 1).ifBlank { null }
+        else s to null
+    }
 
     fun readFileContent(file: File): String = removeComments(file.readText())
 

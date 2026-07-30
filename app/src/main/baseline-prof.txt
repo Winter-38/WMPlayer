@@ -1,0 +1,152 @@
+# Baseline Profile for WinterMuPlayer — 首帧启动路径
+# ART 在安装/升级时 AOT 编译这些代码，消除 JIT 预热延迟
+
+# ── App 入口 ──
+HSLcom/winter/muplayer/ui/activity/MusicUIActivity;->onCreate(Landroid/os/Bundle;)V
+Lcom/winter/muplayer/ui/activity/MusicUIActivity;
+Lcom/winter/muplayer/ui/activity/MusicPlayerApp;
+
+# ── 配置系统 ──
+Lcom/winter/muplayer/config/BinaryCache;
+Lcom/winter/muplayer/config/ConfigPreload;
+Lcom/winter/muplayer/config/ComponentLayout;
+Lcom/winter/muplayer/config/ComponentEntry;
+Lcom/winter/muplayer/config/CssRuleTable;
+Lcom/winter/muplayer/config/LayoutParser;
+Lcom/winter/muplayer/config/LayoutRenderer;
+Lcom/winter/muplayer/config/StyleConfigLoader;
+Lcom/winter/muplayer/config/ComponentRegistry;
+Lcom/winter/muplayer/config/CssParser;
+Lcom/winter/muplayer/config/CssEngine;
+Lcom/winter/muplayer/config/SlotRenderer;
+
+# ── UI 组件 ──
+Lcom/winter/muplayer/ui/components/BuiltInComponents;
+Lcom/winter/muplayer/ui/components/ControlButton;
+Lcom/winter/muplayer/ui/components/PlayModeButton;
+Lcom/winter/muplayer/ui/components/PlayPauseButton;
+Lcom/winter/muplayer/ui/components/formatDuration;
+Lcom/winter/muplayer/ui/components/AlbumThumb;
+Lcom/winter/muplayer/ui/components/FullPlayerPanel;
+Lcom/winter/muplayer/ui/components/MiniPlayerBar;
+Lcom/winter/muplayer/ui/components/QueueSheet;
+Lcom/winter/muplayer/ui/browser/MusicBrowserTabs;
+Lcom/winter/muplayer/ui/browser/MusicBrowserSort;
+Lcom/winter/muplayer/ui/browser/MusicBrowserList;
+Lcom/winter/muplayer/ui/browser/MusicBrowserState;
+Lcom/winter/muplayer/ui/theme/AppTheme;
+Lcom/winter/muplayer/ui/theme/WinterMuPlayerTheme;
+
+# ── Core ──
+Lcom/winter/muplayer/core/MusicPlayerCore;
+Lcom/winter/muplayer/core/engine/PlayerEngine;
+Lcom/winter/muplayer/core/engine/ExoPlayerEngine;
+Lcom/winter/muplayer/core/engine/QueueManager;
+Lcom/winter/muplayer/core/scanner/LocalMusicScanner;
+Lcom/winter/muplayer/core/SettingsManager;
+
+# ── Model ──
+Lcom/winter/muplayer/model/Track;
+Lcom/winter/muplayer/model/PlayerState;
+Lcom/winter/muplayer/model/PlayMode;
+
+# ── Compose Runtime（首帧必经路径） ──
+Landroidx/compose/runtime/ComposerKt;
+Landroidx/compose/runtime/CompositionLocal;
+Landroidx/compose/runtime/RememberObserver;
+Landroidx/compose/runtime/SlotWriter;
+Landroidx/compose/runtime/CompositionContext;
+
+# ── Material3 ──
+Landroidx/compose/material3/MaterialTheme;
+Landroidx/compose/material3/Surface;
+Landroidx/compose/material3/Text;
+Landroidx/compose/material3/Icon;
+Landroidx/compose/material3/IconButton;
+Landroidx/compose/material3/Button;
+Landroidx/compose/material3/Scaffold;
+Landroidx/compose/material3/TopAppBar;
+Landroidx/compose/material3/BottomAppBar;
+Landroidx/compose/material3/NavigationBar;
+Landroidx/compose/material3/NavigationBarItem;
+Landroidx/compose/material3/FilterChip;
+Landroidx/compose/material3/Slider;
+Landroidx/compose/material3/LinearProgressIndicator;
+Landroidx/compose/material3/AlertDialog;
+Landroidx/compose/material3/DropdownMenu;
+Landroidx/compose/material3/Card;
+Landroidx/compose/material3/CardDefaults;
+Landroidx/compose/material3/Switch;
+Landroidx/compose/material3/RadioButton;
+Landroidx/compose/material3/Checkbox;
+Landroidx/compose/material3/TextButton;
+Landroidx/compose/material3/FilledButton;
+Landroidx/compose/material3/OutlinedButton;
+Landroidx/compose/material3/CircularProgressIndicator;
+
+# ── Compose Foundation ──
+Landroidx/compose/foundation/ClickableKt;
+Landroidx/compose/foundation/BackgroundKt;
+Landroidx/compose/foundation/layout/Row;
+Landroidx/compose/foundation/layout/Column;
+Landroidx/compose/foundation/layout/Box;
+Landroidx/compose/foundation/layout/FillKt;
+Landroidx/compose/foundation/layout/PaddingKt;
+Landroidx/compose/foundation/layout/SizeKt;
+Landroidx/compose/foundation/layout/Spacer;
+Landroidx/compose/foundation/scroll/ScrollState;
+Landroidx/compose/foundation/lazy/LazyColumn;
+Landroidx/compose/foundation/lazy/LazyListState;
+Landroidx/compose/foundation/shape/RoundedCornerShape;
+
+# ── Compose Animation ──
+Landroidx/compose/animation/AnimatedVisibilityKt;
+Landroidx/compose/animation/core/Animatable;
+Landroidx/compose/animation/core/tween;
+
+# ── Compose UI ──
+Landroidx/compose/ui/Modifier;
+Landroidx/compose/ui/Modifier$Companion;
+Landroidx/compose/ui/graphics/Color;
+Landroidx/compose/ui/graphics/ColorKt;
+Landroidx/compose/ui/unit/Dp;
+Landroidx/compose/ui/unit/dp;
+Landroidx/compose/ui/unit/sp;
+Landroidx/compose/ui/text/style/TextOverflow;
+Landroidx/compose/ui/text/font/FontWeight;
+Landroidx/compose/ui/Alignment;
+Landroidx/compose/ui/AlignmentKt;
+Landroidx/compose/ui/draw/DrawModifierKt;
+Landroidx/compose/ui/layout/PaddingKt;
+
+# ── Coil（图片加载） ──
+Lcoil/ComposeAsyncImageKt;
+Lcoil/ImageLoader;
+Lcoil/ImageLoaderFactory;
+Lcoil/request/ImageRequest;
+Lcoil/request/ImageRequest$Builder;
+
+# ── Activity/Fragment ──
+Landroidx/activity/compose/ComponentActivity;
+Landroidx/activity/compose/setContent;
+Landroidx/activity/result/ActivityResultLauncher;
+
+# ── Lifecycle ──
+Landroidx/lifecycle/LifecycleCoroutineScope;
+Landroidx/lifecycle/LifecycleOwnerKt;
+
+# ── Kotlin Coroutines ──
+Lkotlinx/coroutines/flow/StateFlow;
+Lkotlinx/coroutines/flow/MutableStateFlow;
+Lkotlinx/coroutines/flow/FlowKt;
+Lkotlinx/coroutines/Dispatchers;
+Lkotlinx/coroutines/CoroutineScope;
+
+# ── Media3 ExoPlayer ──
+Landroidx/media3/exoplayer/ExoPlayer;
+Landroidx/media3/exoplayer/ExoPlayer$Builder;
+
+# ── 系统 ──
+Landroid/app/Activity;
+Landroid/view/View;
+Landroid/os/Bundle;

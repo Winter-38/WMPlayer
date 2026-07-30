@@ -11,3 +11,4 @@ gradle/wrapper/gradle-wrapper.jar
 /release/
 *.jks
 *.keystore
+/record/

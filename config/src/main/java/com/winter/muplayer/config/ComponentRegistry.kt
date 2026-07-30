@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import com.winter.muplayer.core.MusicPlayerCore
 import com.winter.muplayer.model.PlayMode
@@ -77,8 +78,10 @@ object ComponentRegistry {
     @Composable
     fun render(id: String, modifier: Modifier = Modifier) {
         val ctx = LocalSlotContext.current
+        val css = LocalComponentCss.current
+        val contentAlign = css["content-align"]?.let { parseContentAlign(it) } ?: Alignment.Center
         registry[id]?.let {
-            Box(modifier = modifier) { ctx.it() }
+            Box(modifier = modifier, contentAlignment = contentAlign) { ctx.it() }
         }
     }
 

@@ -43,10 +43,11 @@ fun getAlbumArtUri(track: Track, coverCache: Map<Long, String>): String? {
     }
 }
 
-/** 后台封面缓存（图片加载 + 磁盘写入） */
+/** 后台封面缓存（图片加载 + 磁盘写入），复用 Coil 全局 ImageLoader 避免每次新建 */
 suspend fun cacheCoverFiles(context: Context, tracks: List<Track>, coverCache: MutableMap<Long, String>) {
     val cacheDir = File(context.cacheDir, "album_covers")
     cacheDir.mkdirs()
+    val loader = coil.ImageLoader(context.applicationContext)
     for (track in tracks) {
         val coverFile = File(cacheDir, "${track.id}.jpg")
         if (coverFile.exists()) {
@@ -55,23 +56,19 @@ suspend fun cacheCoverFiles(context: Context, tracks: List<Track>, coverCache: M
         }
         try {
             if (track.albumId > 0L) {
-                val uri = "content://media/external/audio/albumart/${track.albumId}"
-                val loader = ImageLoader(context)
                 val request = ImageRequest.Builder(context)
-                    .data(uri)
+                    .data("content://media/external/audio/albumart/${track.albumId}")
                     .size(200, 200)
                     .crossfade(false)
+                    .memoryCacheKey("cover_${track.id}")
                     .build()
-                val result = loader.execute(request)
-                val drawable = result.drawable
-                if (drawable is android.graphics.drawable.BitmapDrawable) {
-                    val bitmap = drawable.bitmap
-                    cacheDir.mkdirs()
-                    val fos = java.io.FileOutputStream(coverFile)
+                val bitmap = (loader.execute(request).drawable
+                    as? android.graphics.drawable.BitmapDrawable)?.bitmap ?: continue
+                cacheDir.mkdirs()
+                java.io.FileOutputStream(coverFile).use { fos ->
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 85, fos)
-                    fos.close()
-                    coverCache[track.id] = coverFile.absolutePath
                 }
+                coverCache[track.id] = coverFile.absolutePath
             }
         } catch (_: Exception) { }
     }

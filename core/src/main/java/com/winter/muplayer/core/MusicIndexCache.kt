@@ -3,8 +3,6 @@ package com.winter.muplayer.core
 import android.content.Context
 import android.util.Log
 import com.winter.muplayer.model.Track
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.File
 
 private const val TAG = "MusicIndexCache"
@@ -111,61 +109,53 @@ class MusicIndexCache(context: Context) {
     private fun loadFromDisk(tracks: List<Track>): IndexData? {
         if (!cacheFile.exists()) return null
         return try {
-            val json = JSONObject(cacheFile.readText())
-            val cachedVersion = json.optInt("version", 0)
-            val cachedTrackCount = json.optInt("trackCount", 0)
-
-            // 曲目数量不匹配 → 缓存已过时
-            if (cachedTrackCount != tracks.size) {
-                Log.d(TAG, "Disk cache stale: trackCount $cachedTrackCount != ${tracks.size}")
-                return null
+            val text = cacheFile.readText()
+            fun extractIds(key: String): List<Long> {
+                val start = text.indexOf("\"$key\"") ?: return emptyList()
+                val arrStart = text.indexOf('[', start) ?: return emptyList()
+                val arrEnd = text.indexOf(']', arrStart) ?: return emptyList()
+                return text.substring(arrStart + 1, arrEnd)
+                    .split(',')
+                    .mapNotNull { it.trim().toLongOrNull() }
             }
+            val ver = text.substringAfter("\"version\":")
+                .substringBefore(',').trim().toIntOrNull() ?: return null
+            val count = text.substringAfter("\"trackCount\":")
+                .substringBefore(',').trim().toIntOrNull() ?: return null
+            if (count != tracks.size) return null
 
-            // 按 trackId 构建查找表
             val trackById = tracks.associateBy { it.id }
+            val artistIndex = mutableMapOf<String, List<Track>>()
+            val albumIndex = mutableMapOf<String, List<Track>>()
 
-            // 恢复歌手索引：trackId → Track 对象映射
-            val artistIndex = mutableMapOf<String, MutableList<Track>>()
-            val artistArr = json.optJSONArray("artistIndex") ?: JSONArray()
-            for (i in 0 until artistArr.length()) {
-                val entry = artistArr.getJSONObject(i)
-                val name = entry.getString("name")
-                val ids = entry.optJSONArray("trackIds") ?: continue
-                val trackList = mutableListOf<Track>()
-                for (j in 0 until ids.length()) {
-                    val id = ids.getLong(j)
-                    trackById[id]?.let { trackList.add(it) }
-                }
-                if (trackList.isNotEmpty()) {
-                    artistIndex[name] = trackList
+            // 解析 artistIndex / albumIndex 数组条目
+            fun parseIndex(key: String, target: MutableMap<String, List<Track>>) {
+                val arrStart = text.indexOf("\"$key\"") ?: return
+                val brace = text.indexOf('[', arrStart) ?: return
+                var pos = brace
+                while (true) {
+                    val ob = text.indexOf('{', pos)
+                    if (ob < 0 || ob > text.indexOf(']', pos)) break
+                    val cb = text.indexOf('}', ob)
+                    if (cb < 0) break
+                    val entry = text.substring(ob, cb + 1)
+                    val name = entry.substringAfter("\"name\":\"")
+                        .substringBefore('"')
+                    val ids = entry.substringAfter("\"trackIds\":[")
+                        .substringBefore(']')
+                        .split(',')
+                        .mapNotNull { it.trim().toLongOrNull() }
+                    val list = ids.mapNotNull { trackById[it] }
+                    if (list.isNotEmpty()) target[name] = list
+                    pos = cb + 1
                 }
             }
+            parseIndex("artistIndex", artistIndex)
+            parseIndex("albumIndex", albumIndex)
 
-            // 恢复专辑索引
-            val albumIndex = mutableMapOf<String, MutableList<Track>>()
-            val albumArr = json.optJSONArray("albumIndex") ?: JSONArray()
-            for (i in 0 until albumArr.length()) {
-                val entry = albumArr.getJSONObject(i)
-                val name = entry.getString("name")
-                val ids = entry.optJSONArray("trackIds") ?: continue
-                val trackList = mutableListOf<Track>()
-                for (j in 0 until ids.length()) {
-                    val id = ids.getLong(j)
-                    trackById[id]?.let { trackList.add(it) }
-                }
-                if (trackList.isNotEmpty()) {
-                    albumIndex[name] = trackList
-                }
-            }
-
-            currentVersion = cachedVersion
+            currentVersion = ver
             Log.i(TAG, "Loaded from disk: ${artistIndex.size} artists, ${albumIndex.size} albums")
-            IndexData(
-                allTracks = tracks,
-                artistIndex = artistIndex.toSortedMap(),
-                albumIndex = albumIndex.toSortedMap(),
-                version = cachedVersion
-            )
+            IndexData(tracks, artistIndex.toSortedMap(), albumIndex.toSortedMap(), ver)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load from disk: ${e.message}")
             cacheFile.delete()
@@ -188,34 +178,31 @@ class MusicIndexCache(context: Context) {
      */
     private fun saveToDisk(index: IndexData) {
         try {
-            val artistArr = JSONArray()
+            val sb = StringBuilder(1024 * 256)
+            sb.append("{\"version\":").append(index.version)
+                .append(",\"trackCount\":").append(index.allTracks.size)
+                .append(",\"artistIndex\":[")
+            var first = true
             for ((name, tracks) in index.artistIndex) {
-                val ids = JSONArray()
-                for (track in tracks) ids.put(track.id)
-                artistArr.put(JSONObject().apply {
-                    put("name", name)
-                    put("trackIds", ids)
-                })
+                if (!first) sb.append(',')
+                first = false
+                sb.append("{\"name\":\"").append(name.replace("\"", "\\\""))
+                    .append("\",\"trackIds\":[")
+                sb.append(tracks.joinToString(",") { it.id.toString() })
+                sb.append("]}")
             }
-
-            val albumArr = JSONArray()
+            sb.append("],\"albumIndex\":[")
+            first = true
             for ((name, tracks) in index.albumIndex) {
-                val ids = JSONArray()
-                for (track in tracks) ids.put(track.id)
-                albumArr.put(JSONObject().apply {
-                    put("name", name)
-                    put("trackIds", ids)
-                })
+                if (!first) sb.append(',')
+                first = false
+                sb.append("{\"name\":\"").append(name.replace("\"", "\\\""))
+                    .append("\",\"trackIds\":[")
+                sb.append(tracks.joinToString(",") { it.id.toString() })
+                sb.append("]}")
             }
-
-            cacheFile.writeText(
-                JSONObject().apply {
-                    put("version", index.version)
-                    put("trackCount", index.allTracks.size)
-                    put("artistIndex", artistArr)
-                    put("albumIndex", albumArr)
-                }.toString()
-            )
+            sb.append("]}")
+            cacheFile.writeText(sb.toString())
             Log.i(TAG, "Saved to disk: ${index.artistIndex.size} artists, ${index.albumIndex.size} albums")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to save to disk: ${e.message}")
