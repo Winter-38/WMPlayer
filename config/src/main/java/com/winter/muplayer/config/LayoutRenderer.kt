@@ -17,6 +17,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -44,28 +46,33 @@ fun SlotRenderer(
     debug: Boolean = false,
 ) {
     CompositionLocalProvider(LocalCssRules provides css) {
-        val layoutCss = css.rules[".layout"] ?: emptyMap()
-        val layoutArrange = layoutCss["arrange"]
-        val isLayoutRow = layoutArrange == "row" || layoutArrange == "horizontal"
-        val outerMod = Modifier.fillMaxSize().applyCssProps(layoutCss).statusBarsPadding()
+        // 进度数据独立收集：仅订阅 LocalProgress 的组件（text bind position/duration、progress-slider）
+        // 随进度高频重组，其余组件因参数稳定而跳过，避免整个 UI 每 250ms 全量重组。
+        val progress by context.musicPlayerCore.progressState.collectAsState()
+        CompositionLocalProvider(LocalProgress provides progress) {
+            val layoutCss = css.rules[".layout"] ?: emptyMap()
+            val layoutArrange = layoutCss["arrange"]
+            val isLayoutRow = layoutArrange == "row" || layoutArrange == "horizontal"
+            val outerMod = Modifier.fillMaxSize().applyCssProps(layoutCss).statusBarsPadding()
 
-        if (isLayoutRow) {
-            Row(modifier = outerMod) {
-                SlotRendererBody(
-                    slots = slots, context = context, css = css,
-                    customComponents = customComponents, debug = debug,
-                    crossAxisFill = Modifier::fillMaxHeight,
-                    weightFn = { w -> Modifier.weight(w) },
-                )
-            }
-        } else {
-            Column(modifier = outerMod) {
-                SlotRendererBody(
-                    slots = slots, context = context, css = css,
-                    customComponents = customComponents, debug = debug,
-                    crossAxisFill = Modifier::fillMaxWidth,
-                    weightFn = { w -> Modifier.weight(w) },
-                )
+            if (isLayoutRow) {
+                Row(modifier = outerMod) {
+                    SlotRendererBody(
+                        slots = slots, context = context, css = css,
+                        customComponents = customComponents, debug = debug,
+                        crossAxisFill = Modifier::fillMaxHeight,
+                        weightFn = { w -> Modifier.weight(w) },
+                    )
+                }
+            } else {
+                Column(modifier = outerMod) {
+                    SlotRendererBody(
+                        slots = slots, context = context, css = css,
+                        customComponents = customComponents, debug = debug,
+                        crossAxisFill = Modifier::fillMaxWidth,
+                        weightFn = { w -> Modifier.weight(w) },
+                    )
+                }
             }
         }
     }
@@ -177,7 +184,6 @@ private fun SlotRendererBody(
                                 LocalSlotContext provides context.copy(slotName = slotName, slotArrange = arrange),
                                 LocalComponentExtra provides entry.extra,
                                 LocalComponentCss provides compCss,
-                                LocalComponentCid provides entry.cid,
                             ) {
                                 val renderer: @Composable (Modifier) -> Unit = { mod ->
                                     val children = entry.extra["children"]
@@ -262,7 +268,6 @@ private fun SlotRendererBody(
                                 LocalSlotContext provides context.copy(slotName = slotName, slotArrange = arrange),
                                 LocalComponentExtra provides entry.extra,
                                 LocalComponentCss provides compCss,
-                                LocalComponentCid provides entry.cid,
                             ) {
                                 val renderer: @Composable (Modifier) -> Unit = { mod ->
                                     val children = entry.extra["children"]

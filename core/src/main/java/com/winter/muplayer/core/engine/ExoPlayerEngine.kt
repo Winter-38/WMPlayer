@@ -4,8 +4,6 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.os.Handler
-import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -103,18 +101,9 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
                 Player.STATE_READY -> {
                     val isPlaying = exoPlayer.playWhenReady
                     val newState = if (isPlaying) PlayerState.PLAYING else PlayerState.PAUSED
-                    _playerState.update {
-                        it.copy(
-                            state = newState,
-                            duration = exoPlayer.duration.coerceAtLeast(0L),
-                            progress = exoPlayer.currentPosition.coerceAtLeast(0L)
-                        )
-                    }
+                    _playerState.update { it.copy(state = newState) }
                 }
                 Player.STATE_ENDED -> {
-                    _playerState.update {
-                        it.copy(progress = exoPlayer.duration.coerceAtLeast(0L))
-                    }
                     onTrackEndListener?.invoke()
                 }
             }
@@ -194,8 +183,6 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
                 it.copy(
                     state = PlayerState.LOADING,
                     currentTrack = track,
-                    progress = 0L,
-                    duration = track.duration,
                     error = null
                 )
             }
@@ -259,17 +246,11 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
     override fun stop() {
         exoPlayer.stop()
         abandonAudioFocus()
-        _playerState.update {
-            it.copy(
-                state = PlayerState.IDLE,
-                progress = 0L
-            )
-        }
+        _playerState.update { it.copy(state = PlayerState.IDLE) }
     }
 
     override fun seekTo(positionMs: Long) {
         exoPlayer.seekTo(positionMs)
-        _playerState.update { it.copy(progress = positionMs) }
     }
 
     override fun release() {

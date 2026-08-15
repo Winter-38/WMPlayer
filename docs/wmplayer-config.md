@@ -258,19 +258,31 @@ children 的 value 与顶层 `slots` 数组元素格式一致——每个 key �
 | `#component-id` | 指定组件类型 | 所有该类型的组件共享此样式 |
 | `#cid-name` | 指定组件实例（`cid`） | 只作用于有该 `cid` 的单个实例 |
 
-**CSS 层叠规则：**
+**CSS 覆盖规则（重要）：**
 
-`#<cid>` 的规则叠加覆盖 `#<type>` 的规则（同名属性以 cid 为准）：
+规则按「整块替换」进行，不是标准 CSS 的逐属性级联：
+
+- **跨文件**：`config/` 下所有 `.css` 按文件名升序加载，后加载文件中同名的选择器规则块会整体替换先加载文件中的同名规则块（不会逐属性合并）。
+- **同一文件内**：同名选择器重复出现时，后出现的规则块整体替换先出现的规则块。
+- **同一规则块内**：同名属性后写覆盖先写。
+
+```css
+/* a.css */
+#icon { size: 24px; color: #ffffff; }
+
+/* b.css —— 整块替换 a.css 的 #icon，color 会丢失 */
+#icon { size: 28px; }
+```
+
+`#<cid>` 对 `#<type>` 是唯一例外：二者按**属性级叠加**，同名属性以 cid 为准，非同名属性保留。
 
 ```css
 /* 所有 icon 默认 24px */
 #icon { size: 24px; }
 
-/* 搜索图标单独改颜色和尺寸 */
+/* 搜索图标：size 覆盖为 28px，color 为新增 */
 #search-icon { color: #ff6b6b; size: 28px; }
 ```
-
-**优先级：** 后加载的 CSS 文件覆盖先加载的同名选择器。同名选择器内后出现的属性覆盖先出现的属性。
 
 **CSS 选择器与 JSON 的关联方式：**
 
@@ -358,39 +370,40 @@ padding: 8px 12px 16px 20px  /* 上 右 下 左 */
 
 #### align-self
 
-控制组件在 slot 内的对齐方式。使用方位名，不依赖 `arrange` 方向。
+控制组件在 slot 交叉轴方向的对齐方式。仅支持 `start` / `center` / `end` 三个值，映射随 slot 的 `arrange` 方向变化：
 
-| 值 | 效果 | Compose Alignment |
-|----|------|-------------------|
-| `top` | 顶部居中 | TopCenter |
-| `bottom` | 底部居中 | BottomCenter |
-| `left` | 左边缘居中 | CenterStart |
-| `right` | 右边缘居中 | CenterEnd |
-| `top-left` | 左上角 | TopStart |
-| `top-right` | 右上角 | TopEnd |
-| `bottom-left` | 左下角 | BottomStart |
-| `bottom-right` | 右下角 | BottomEnd |
-| `center` | 绝对居中（双轴） | Center |
-| `stretch` | 填满 slot 宽高 | fillMaxSize |
+| 值 | Row（水平排列）内 | Column（垂直排列）内 |
+|----|------------------|---------------------|
+| `start` | 顶部对齐 | 左边缘对齐 |
+| `center` | 垂直居中 | 水平居中 |
+| `end` | 底部对齐 | 右边缘对齐 |
 
-**注意：** `stretch` 和带填充的居中（`center`/`top`/`bottom`/`left`/`right`等）需要 slot 有 `weight` 提供可用空间。slot `weight: 0` 时包裹内容，无剩余空间可用。
+未设置或填写了其他值（如 `top`、`left`、`stretch`）时，组件默认填满 slot 的交叉轴（等效 `stretch`）。
+
+```css
+/* 垂直排列的 slot 内，让组件靠左对齐 */
+.sidebar { arrange: column; }
+#tab-bar { align-self: start; }
+```
 
 ### 3.5 动画属性
 
 #### animation
 
 ```css
-animation: <name> <duration> [easing] [count]
+animation: <name> <duration> [easing]
 ```
 
 **内置动画名：**
 
 | 名称 | 效果 |
 |------|------|
-| `spin` | 无限旋转 |
-| `pulse` | 缩放脉冲（1.0 ↔ 1.15） |
-| `bounce` | 垂直弹跳 |
+| `spin` | 旋转（无限循环） |
+| `pulse` | 缩放脉冲 1.0 ↔ 1.15（无限循环） |
+| `bounce` | 垂直弹跳（无限循环） |
 | `fade-in` | 渐显（播放一次） |
+
+`spin` / `pulse` / `bounce` 始终无限循环，`fade-in` 播放一次。当前实现不支持有限循环次数。
 
 **时长：** `3s`（秒）或 `3000ms`（毫秒），默认 `1000ms`
 
@@ -399,17 +412,19 @@ animation: <name> <duration> [easing] [count]
 | 值 | 说明 |
 |----|------|
 | `linear` | 线性 |
-| `ease-in` | 缓入 |
-| `ease-out` | 缓出 |
+| `ease-in` | 当前与 `ease-in-out` 等价 |
+| `ease-out` | 当前与 `ease-in-out` 等价 |
 | `ease-in-out` | 缓入缓出（默认） |
+
+> 当前实现中 `ease-in` / `ease-out` / `ease-in-out` 三者映射到同一条缓动曲线，只有 `linear` 有实际区别。
 
 **示例：**
 
 ```css
-/* 3 秒线性无限旋转 */
-#search-button { animation: spin 3s linear infinite; }
+/* 3 秒线性旋转（无限循环） */
+#search-button { animation: spin 3s linear; }
 
-/* 2 秒脉冲 */
+/* 2 秒脉冲（无限循环） */
 #play-button { animation: pulse 2s ease-in-out; }
 ```
 
@@ -437,6 +452,7 @@ animation: <name> <duration> [easing] [count]
 | `height` | 长度 | slot 固定高度（需 `weight: 0`） |
 | `background-color` | 颜色 | slot 背景色 |
 | `padding` | 长度/组 | slot 内边距 |
+| `justify-content` | `start`/`center`/`end`/`space-between`/`space-evenly`/`space-around` | 子组件在主轴方向的排列方式 |
 
 #### 组件级属性（在 `#component-id` 中设置）
 
@@ -454,7 +470,8 @@ animation: <name> <duration> [easing] [count]
 | `scale` | 数字 | 缩放 |
 | `rotate` | 角度 | 旋转 |
 | `overflow` | `hidden` | 裁剪 |
-| `align-self` | `top`/`bottom`/`left`/`right`/`top-left`/`top-right`/`bottom-left`/`bottom-right`/`center`/`stretch` | 对齐方式 |
+| `align-self` | `start`/`center`/`end` | 交叉轴对齐（见 3.4） |
+| `content-align` | `start`/`center`/`end` | 组件内容在自身 Box 内的对齐（默认 `center`） |
 | `animation` | 动画值 | 动画效果 |
 | `color` | 颜色 | 文字/图标颜色（组件内部使用） |
 
@@ -535,6 +552,21 @@ animation: <name> <duration> [easing] [count]
 "playbar"
 ```
 
+#### spacer
+
+弹性空白占位组件，自身不渲染内容，`weight` 由 CSS 控制，用于把相邻组件推到两端。
+
+```json
+"spacer"
+```
+
+```css
+/* 占据剩余空间，把两侧组件分开 */
+#spacer { weight: 1; }
+```
+
+默认布局的 `app-top` 用它把应用名与右侧按钮分隔开。
+
 #### icon
 
 通用图标组件，通过 `extra` 参数指定图标资源。
@@ -571,6 +603,26 @@ animation: <name> <duration> [easing] [count]
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `content` | string | 显示文本，不设时显示 `(text)` |
+| `bind` | string | 数据绑定键，引用播放器运行时状态，优先级高于 `content` |
+
+**数据绑定（bind）：**
+
+```json
+{ "text": { "bind": "track.title" } }
+{ "text": { "bind": "position" } }
+```
+
+| bind 键 | 说明 |
+|---------|------|
+| `track.title` | 当前歌曲标题 |
+| `track.artist` | 当前歌曲歌手 |
+| `track.album` | 当前歌曲专辑 |
+| `track.artistAlbum` | "歌手 • 专辑" 组合文本 |
+| `track.duration` | 当前歌曲总时长（MM:SS） |
+| `position` | 当前播放位置（MM:SS） |
+| `duration` | 播放总时长（MM:SS，来自进度追踪器） |
+
+bind 未命中时显示 `(bind:<键>)` 便于排查。
 
 **CSS 支持：**
 
@@ -586,13 +638,50 @@ animation: <name> <duration> [easing] [count]
 #text { color: #ffffff; font-size: 16px; font-weight: bold; }
 ```
 
-#### old-playlist
+#### icon-button
 
-向后兼容的旧版复合组件，包含 MusicBrowserTabs + MusicBrowserSort + MusicBrowserList。不推荐新配置使用。
+通用图标按钮，`icon` 指定 drawable 资源名，`action` 指定点击行为。
 
 ```json
-"old-playlist"
+{ "icon-button": { "icon": "ic_search", "action": "toggleSearch" } }
 ```
+
+**参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `icon` | string | drawable 资源名 |
+| `action` | string | `toggleSearch` / `openSettings` / `previous` / `next` / `openQueue` / `openFullPlayer` / `togglePlay` |
+
+**CSS 支持：** `color`（tint）/ `size`（尺寸）
+
+#### cover
+
+专辑封面缩略图，显示当前播放曲目封面，无曲目/无封面时回退占位图标。
+
+```json
+"cover"
+```
+
+**CSS 支持：** `size`（尺寸，默认 48dp）
+
+#### progress-slider
+
+进度条滑块，订阅播放进度，拖动时 seek。与 `text` + `bind position/duration` 组合即可拼出完整进度条。
+
+```json
+"progress-slider"
+```
+
+#### play-pause-button / prev-button / next-button / play-mode-button / queue-button
+
+播放控制原子按钮，可独立放在任意 slot。
+
+```json
+["prev-button", "play-pause-button", "next-button"]
+```
+
+**CSS 支持：** `color`（tint）；`prev-button` / `next-button` / `queue-button` 另支持 `size`。
 
 ### 4.2 全屏播放器组件
 

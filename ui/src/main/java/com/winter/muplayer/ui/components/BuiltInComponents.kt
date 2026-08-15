@@ -1,19 +1,15 @@
 package com.winter.muplayer.ui.components
 
 import com.winter.muplayer.config.ComponentRegistry
+import com.winter.muplayer.config.DataBinding
 import com.winter.muplayer.config.LocalComponentCss
 import com.winter.muplayer.config.LocalComponentExtra
+import com.winter.muplayer.config.LocalProgress
 import com.winter.muplayer.config.SlotContext
 import com.winter.muplayer.config.isSlotHorizontal
 import com.winter.muplayer.config.isSlotVertical
 import com.winter.muplayer.config.parseCssColor
 import com.winter.muplayer.config.parseCssDp
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,10 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,22 +38,18 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.platform.LocalContext
+import com.winter.muplayer.ui.browser.AlbumThumb
 import com.winter.muplayer.ui.browser.LocalBrowserState
 import com.winter.muplayer.ui.browser.MusicBrowserList
-import com.winter.muplayer.ui.browser.MusicBrowserSort
-import com.winter.muplayer.ui.browser.MusicBrowserTabs
 import com.winter.muplayer.ui.browser.MusicCategory
 import com.winter.muplayer.ui.browser.displayName
 import android.os.Build
@@ -88,15 +77,23 @@ fun registerBuiltInComponents() {
         "sort" to { Sort() },
         "playlist" to { Playlist() },
         "playbar" to { PlayBar() },
+        // 通用原子组件
         "icon" to { IconComponent() },
+        "icon-button" to { IconButtonComponent() },
         "text" to { TextComponent() },
         "spacer" to { Spacer() },
+        "cover" to { CoverComponent() },
+        "progress-slider" to { ProgressSliderComponent() },
+        // 播放控制原子按钮
+        "play-pause-button" to { PlayPauseComponent() },
+        "prev-button" to { PrevButtonComponent() },
+        "next-button" to { NextButtonComponent() },
+        "play-mode-button" to { PlayModeComponent() },
+        "queue-button" to { QueueButtonComponent() },
         // 全屏播放器组件
         "track-info" to { TrackInfo() },
         "progress-bar" to { ProgressBar() },
         "controls-row" to { ControlsRow() },
-        // 向后兼容：旧版 playlist 复合组件
-        "old-playlist" to { OldPlaylist() },
     )
 }
 
@@ -121,30 +118,85 @@ private fun SlotContext.AppName() {
     )
 }
 
+/**
+ * 图标按钮共享实现 —— 所有"图标 + 动作"按钮的公共渲染逻辑。
+ * @param iconName drawable 资源名
+ * @param action    点击行为标识，未识别时按钮不可点（渲染但无响应）
+ */
 @Composable
-private fun SlotContext.SearchButton() {
+private fun SlotContext.iconButton(iconName: String, action: String) {
     val css = LocalComponentCss.current
-    val iconSize = css["size"]?.let { parseCssDp(it) } ?: 24.dp
-    IconButton(onClick = onOpenSearch, modifier = Modifier.size(iconSize)) {
+    val iconSize = css["size"]?.let { parseCssDp(it) } ?: 40.dp
+    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    val context = LocalContext.current
+    val resId = context.resources.getIdentifier(iconName, "drawable", context.packageName)
+
+    // 显式类型变量：避免 when 中 lambda 分支 + 函数属性 + null 混用导致 Kotlin 推断歧义
+    val togglePlay: () -> Unit = { if (playerState.state == PlayerState.PLAYING) onPause() else onPlay() }
+    val onClick: (() -> Unit)? = when (action) {
+        "toggleSearch", "openSearch" -> onOpenSearch
+        "openSettings" -> onOpenSettings
+        "previous" -> onPrevious
+        "next" -> onNext
+        "openQueue" -> onOpenQueue
+        "openFullPlayer" -> onOpenFullPlayer
+        "togglePlay" -> togglePlay
+        else -> null
+    }
+
+    if (resId == 0 || onClick == null) {
+        // 回退：彩色圆点，帮助排查配置问题（与 IconComponent 一致）
+        Box(
+            modifier = Modifier
+                .size(iconSize * 0.6f)
+                .background(tint, shape = androidx.compose.foundation.shape.CircleShape),
+        )
+        return
+    }
+
+    IconButton(onClick = onClick, modifier = Modifier.size(iconSize)) {
         Icon(
-            painter = painterResource(R.drawable.ic_search),
-            contentDescription = stringResource(R.string.search),
-            modifier = Modifier.fillMaxSize(),
+            painter = painterResource(resId),
+            contentDescription = iconName,
+            modifier = Modifier.fillMaxSize().padding(8.dp),
+            tint = tint,
         )
     }
 }
 
+/**
+ * 通用图标按钮组件 —— `icon` 指定 drawable 资源名，`action` 指定点击行为。
+ *
+ * JSON 示例：
+ *   { "icon-button": { "icon": "ic_search", "action": "toggleSearch" } }
+ *
+ * 支持 action：toggleSearch / openSettings / previous / next / openQueue / openFullPlayer / togglePlay
+ * CSS 支持：color（tint）/ size（尺寸）
+ */
+@Composable
+private fun SlotContext.IconButtonComponent() {
+    val extra = LocalComponentExtra.current
+    val iconName = extra["icon"] as? String ?: "ic_help"
+    val action = extra["action"] as? String ?: ""
+    iconButton(iconName, action)
+}
+
+@Composable
+private fun SlotContext.SearchButton() {
+    val extra = LocalComponentExtra.current
+    iconButton(
+        iconName = extra["icon"] as? String ?: "ic_search",
+        action = extra["action"] as? String ?: "toggleSearch",
+    )
+}
+
 @Composable
 private fun SlotContext.SettingButton() {
-    val css = LocalComponentCss.current
-    val iconSize = css["size"]?.let { parseCssDp(it) } ?: 24.dp
-    IconButton(onClick = onOpenSettings, modifier = Modifier.size(iconSize)) {
-        Icon(
-            painter = painterResource(R.drawable.ic_settings),
-            contentDescription = stringResource(R.string.settings),
-            modifier = Modifier.fillMaxSize(),
-        )
-    }
+    val extra = LocalComponentExtra.current
+    iconButton(
+        iconName = extra["icon"] as? String ?: "ic_settings",
+        action = extra["action"] as? String ?: "openSettings",
+    )
 }
 
 /**
@@ -216,7 +268,13 @@ private fun SlotContext.IconComponent() {
 private fun SlotContext.TextComponent() {
     val extra = LocalComponentExtra.current
     val css = LocalComponentCss.current
-    val content = extra["content"] as? String
+    // bind 优先级高于 content：bind 引用播放器运行时状态（track.title / position 等）
+    val bind = extra["bind"] as? String
+    val content = if (bind != null) {
+        DataBinding.resolve(bind, this, LocalProgress.current) ?: "(bind:$bind)"
+    } else {
+        extra["content"] as? String
+    }
 
     val cssColor = css["color"]?.let { parseCssColor(it) }
     val fontSize = css["font-size"]?.let { parseCssDp(it) }
@@ -280,6 +338,140 @@ private fun parseCssTextAlign(value: String): TextAlign? = when (value.lowercase
 @Composable
 private fun SlotContext.Spacer() {
     // 空白占位 —— weight 由 LayoutRenderer 从 CSS 读取并应用为 Modifier.weight()
+}
+
+// ==================== cover ====================
+
+/** 封面底层实现（传显式尺寸，供复合组件内部复用） */
+@Composable
+private fun SlotContext.cover(size: Dp) {
+    AlbumThumb(albumTrack = playerState.currentTrack, coverCache = coverCache, size = size)
+}
+
+/**
+ * 专辑封面缩略图 —— 显示当前播放曲目封面，无曲目/无封面时回退占位图标。
+ * CSS 支持：size（尺寸）
+ */
+@Composable
+private fun SlotContext.CoverComponent() {
+    val css = LocalComponentCss.current
+    val size = css["size"]?.let { parseCssDp(it) } ?: 48.dp
+    cover(size)
+}
+
+// ==================== 播放控制原子按钮 ====================
+
+/** 播放模式循环切换的共享逻辑（避免 controls-row 与 play-mode-button 各写一份） */
+private fun nextPlayMode(mode: PlayMode): PlayMode = when (mode) {
+    PlayMode.SEQUENTIAL -> PlayMode.SHUFFLE
+    PlayMode.SHUFFLE -> PlayMode.SINGLE_LOOP
+    PlayMode.SINGLE_LOOP -> PlayMode.REPEAT_ALL
+    PlayMode.REPEAT_ALL -> PlayMode.SEQUENTIAL
+}
+
+/**
+ * 播放/暂停按钮原子组件。
+ * CSS 支持：color（tint）
+ */
+@Composable
+private fun SlotContext.PlayPauseComponent() {
+    val css = LocalComponentCss.current
+    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    PlayPauseButton(
+        isPlaying = playerState.state == PlayerState.PLAYING,
+        isLoading = playerState.state == PlayerState.LOADING,
+        onPlay = onPlay,
+        onPause = onPause,
+        containerColor = tint.copy(alpha = 0.2f),
+        iconTint = tint,
+    )
+}
+
+/** 上一首按钮原子组件。CSS 支持：color（tint）/ size（尺寸） */
+@Composable
+private fun SlotContext.PrevButtonComponent() {
+    val css = LocalComponentCss.current
+    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    val size = css["size"]?.let { parseCssDp(it) } ?: 48.dp
+    ControlButton(
+        icon = painterResource(R.drawable.ic_skip_previous),
+        onClick = onPrevious,
+        size = size,
+        tint = tint,
+    )
+}
+
+/** 下一首按钮原子组件。CSS 支持：color（tint）/ size（尺寸） */
+@Composable
+private fun SlotContext.NextButtonComponent() {
+    val css = LocalComponentCss.current
+    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    val size = css["size"]?.let { parseCssDp(it) } ?: 48.dp
+    ControlButton(
+        icon = painterResource(R.drawable.ic_skip_next),
+        onClick = onNext,
+        size = size,
+        tint = tint,
+    )
+}
+
+/** 播放模式按钮原子组件。CSS 支持：color（tint） */
+@Composable
+private fun SlotContext.PlayModeComponent() {
+    val css = LocalComponentCss.current
+    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    PlayModeButton(
+        playMode = playMode,
+        onClick = { onPlayModeChange(nextPlayMode(playMode)) },
+        tint = tint,
+    )
+}
+
+/** 播放队列按钮原子组件。CSS 支持：color（tint）/ size（尺寸） */
+@Composable
+private fun SlotContext.QueueButtonComponent() {
+    val css = LocalComponentCss.current
+    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    val size = css["size"]?.let { parseCssDp(it) } ?: 32.dp
+    IconButton(onClick = onOpenQueue) {
+        Icon(
+            painter = painterResource(R.drawable.ic_playlist_music),
+            contentDescription = stringResource(R.string.playlist),
+            modifier = Modifier.size(size),
+            tint = tint,
+        )
+    }
+}
+
+// ==================== progress-slider ====================
+
+/** 进度滑块底层实现（复合组件 progress-bar 内部复用，避免 Slider 样式重复） */
+@Composable
+private fun SlotContext.progressSlider(modifier: Modifier = Modifier) {
+    val progressData = LocalProgress.current
+    Slider(
+        value = if (progressData.duration > 0)
+            progressData.progress.toFloat() / progressData.duration.toFloat()
+        else 0f,
+        onValueChange = { fraction ->
+            onSeek((fraction * progressData.duration).toLong())
+        },
+        modifier = modifier,
+        colors = SliderDefaults.colors(
+            thumbColor = MaterialTheme.colorScheme.primary,
+            activeTrackColor = MaterialTheme.colorScheme.primary,
+            inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+        ),
+    )
+}
+
+/**
+ * 进度条滑块原子组件 —— 订阅 LocalProgress，拖动时回调 onSeek。
+ * 与时间标签（text + bind position/duration）组合即可拼出完整进度条。
+ */
+@Composable
+private fun SlotContext.ProgressSliderComponent() {
+    progressSlider(Modifier.fillMaxWidth())
 }
 
 // ==================== tab-bar ====================
@@ -576,8 +768,6 @@ private fun SlotContext.Playlist() {
                     }
                     // 从界面列表移除
                     browserState.tracks = browserState.tracks.filter { it.id != trackToDelete.id }
-                    // 清除缓存
-                    musicPlayerCore.musicIndexCache.invalidate()
                     // 关闭菜单
                     showDeleteConfirm = false
                     selectedTrack = null
@@ -591,24 +781,6 @@ private fun SlotContext.Playlist() {
                 }
             }
         )
-    }
-}
-
-// ==================== 向后兼容的旧版 playlist 复合组件 ====================
-
-@Composable
-private fun SlotContext.OldPlaylist() {
-    Column(modifier = Modifier.fillMaxSize()) {
-        MusicBrowserTabs()
-        MusicBrowserSort()
-        Box(modifier = Modifier.weight(1f)) {
-            MusicBrowserList(
-                coverCache = coverCache,
-                onTrackClick = { track, contextTracks ->
-                    onPlayTrackSmart(track, contextTracks)
-                },
-            )
-        }
     }
 }
 
@@ -635,20 +807,7 @@ private fun SlotContext.PlayBar() {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 // 封面缩略图
-                if (currentTrack != null) {
-                    com.winter.muplayer.ui.browser.AlbumThumb(
-                        albumTrack = currentTrack,
-                        coverCache = coverCache,
-                        size = 80.dp,
-                    )
-                } else {
-                    Icon(
-                        painterResource(com.winter.muplayer.ui.R.drawable.ic_music_note),
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                cover(80.dp)
 
                 // 歌曲信息
                 Text(
@@ -708,27 +867,10 @@ private fun SlotContext.PlayBar() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 封面缩略图
-            if (currentTrack != null) {
-                com.winter.muplayer.ui.browser.AlbumThumb(
-                    albumTrack = currentTrack,
-                    coverCache = coverCache,
-                    size = 56.dp,
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .padding(end = 14.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        painterResource(com.winter.muplayer.ui.R.drawable.ic_music_note),
-                        contentDescription = null,
-                        modifier = Modifier.size(32.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            cover(56.dp)
+
+            // 封面与歌曲信息的间隙
+            Spacer(Modifier.width(12.dp))
 
             // 歌曲信息
             Column(modifier = Modifier.weight(1f)) {
@@ -886,6 +1028,7 @@ private fun SlotContext.TrackInfo() {
 
 @Composable
 private fun SlotContext.ProgressBar() {
+    val progressData = LocalProgress.current
     if (isSlotHorizontal) {
         // 横向父 slot → 行内紧凑进度条
         Row(
@@ -893,26 +1036,13 @@ private fun SlotContext.ProgressBar() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = formatDuration(playerState.progress),
+                text = formatDuration(progressData.progress),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Slider(
-                value = if (playerState.duration > 0)
-                    playerState.progress.toFloat() / playerState.duration.toFloat()
-                else 0f,
-                onValueChange = { fraction ->
-                    onSeek((fraction * playerState.duration).toLong())
-                },
-                modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
-                ),
-            )
+            progressSlider(Modifier.weight(1f).padding(horizontal = 4.dp))
             Text(
-                text = formatDuration(playerState.duration),
+                text = formatDuration(progressData.duration),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -923,20 +1053,7 @@ private fun SlotContext.ProgressBar() {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val w = maxWidth
         Column(modifier = Modifier.fillMaxWidth()) {
-            Slider(
-                value = if (playerState.duration > 0)
-                    playerState.progress.toFloat() / playerState.duration.toFloat()
-                else 0f,
-                onValueChange = { fraction ->
-                    onSeek((fraction * playerState.duration).toLong())
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
-                ),
-            )
+            progressSlider(Modifier.fillMaxWidth())
 
             // 窄时隐藏时间标签
             if (w >= 180.dp) {
@@ -945,12 +1062,12 @@ private fun SlotContext.ProgressBar() {
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = formatDuration(playerState.progress),
+                        text = formatDuration(progressData.progress),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = formatDuration(playerState.duration),
+                        text = formatDuration(progressData.duration),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -973,13 +1090,7 @@ private fun SlotContext.ControlsRow() {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             PlayModeButton(playMode = playMode, onClick = {
-                val newMode = when (playMode) {
-                    PlayMode.SEQUENTIAL -> PlayMode.SHUFFLE
-                    PlayMode.SHUFFLE -> PlayMode.SINGLE_LOOP
-                    PlayMode.SINGLE_LOOP -> PlayMode.REPEAT_ALL
-                    PlayMode.REPEAT_ALL -> PlayMode.SEQUENTIAL
-                }
-                onPlayModeChange(newMode)
+                onPlayModeChange(nextPlayMode(playMode))
             }, tint = tint)
             PlayPauseButton(
                 isPlaying = isPlaying,
@@ -1013,15 +1124,7 @@ private fun SlotContext.ControlsRow() {
             // 播放模式
             PlayModeButton(
                 playMode = playMode,
-                onClick = {
-                    val newMode = when (playMode) {
-                        PlayMode.SEQUENTIAL -> PlayMode.SHUFFLE
-                        PlayMode.SHUFFLE -> PlayMode.SINGLE_LOOP
-                        PlayMode.SINGLE_LOOP -> PlayMode.REPEAT_ALL
-                        PlayMode.REPEAT_ALL -> PlayMode.SEQUENTIAL
-                    }
-                    onPlayModeChange(newMode)
-                },
+                onClick = { onPlayModeChange(nextPlayMode(playMode)) },
                 tint = tint,
             )
 

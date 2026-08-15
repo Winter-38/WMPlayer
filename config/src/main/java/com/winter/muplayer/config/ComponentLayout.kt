@@ -1,8 +1,5 @@
 package com.winter.muplayer.config
 
-import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.staticCompositionLocalOf
-
 /**
  * 组件条目 —— 一个组件实例在 slot 中的声明。
  * @param id       组件注册 ID（字符串简写或 JSON key 去掉 # 前缀后的值）
@@ -31,16 +28,6 @@ data class ComponentEntry(
  *     "app-bottom": ["#playbar"]
  *   }
  */
-/**
- * 自定义组件定义 —— 用户通过 JSON 声明的组件。
- * @param icon drawable 资源名，如 `"ic_search"`
- * @param onClick 点击行为标识，如 `"toggleSearch"`、`"openSettings"`
- */
-data class CustomComponentDef(
-    val icon: String? = null,
-    val onClick: String? = null,
-)
-
 data class ComponentLayout(
     val slots: Map<String, List<ComponentEntry>> = defaultSlots,
     /** 自定义组件定义 —— JSON 中以 `#name` 为 key 的条目 */
@@ -74,8 +61,3 @@ data class ComponentLayout(
         )
     }
 }
-
-val LocalComponentLayout = compositionLocalOf { ComponentLayout() }
-
-/** 当前组件实例的 cid（如 JSON 中声明了 cid 字段），供组件自身或 CSS 调试使用。 */
-val LocalComponentCid = staticCompositionLocalOf<String?> { null }

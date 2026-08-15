@@ -3,8 +3,6 @@ package com.winter.muplayer.config
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.security.MessageDigest
 
 /**
@@ -90,11 +88,6 @@ object BinaryCache {
             }
         }
         return true
-    }
-
-    /** 删除缓存（热重载时调用） */
-    fun invalidate(configDir: File) {
-        File(configDir, CACHE_FILENAME).delete()
     }
 
     // ── 序列化 ──

@@ -1,6 +1,5 @@
 package com.winter.muplayer.config
 
-import androidx.compose.animation.core.InfiniteTransition
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -43,26 +41,7 @@ val LocalCssRules = staticCompositionLocalOf { CssRuleTable() }
  */
 val LocalComponentCss = staticCompositionLocalOf<Map<String, String>> { emptyMap() }
 
-/** 从 className 对应的 CSS 规则中读取 weight 值（ColumnScope / RowScope 层使用） */
-fun CssRuleTable.cssWeight(className: String?): Float? {
-    if (className == null) return null
-    return rules[className]?.get("weight")?.toFloatOrNull()
-}
-
 // ── CSS 属性 → Compose Modifier 映射 ──
-
-/**
- * 根据 className 从规则表中查找并应用 CSS 样式到 Modifier。
- * 当前支持的静态属性见 [applyCssProps]。
- */
-fun Modifier.applyCssClass(
-    className: String?,
-    css: CssRuleTable,
-): Modifier {
-    if (className == null) return this
-    val props = css.rules[className] ?: return this
-    return applyCssProps(props)
-}
 
 /**
  * 将 CSS 属性字典应用到 Modifier。

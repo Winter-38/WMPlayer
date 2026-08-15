@@ -1,5 +1,6 @@
 package com.winter.muplayer.ui.browser
 
+import com.winter.muplayer.core.SettingsManager
 import com.winter.muplayer.ui.R
 
 import androidx.compose.runtime.Composable
@@ -17,13 +18,30 @@ import com.winter.muplayer.model.Track
  */
 class MusicBrowserState(
     initialTracks: List<Track> = emptyList(),
+    private val settings: SettingsManager? = null,
 ) {
     var tracks by mutableStateOf(initialTracks)
     var isLoading by mutableStateOf(true)
     var searchQuery by mutableStateOf("")
     var selectedCategory by mutableStateOf(MusicCategory.ALL)
-    var sortField by mutableIntStateOf(0)
-    var sortAsc by mutableStateOf(true)
+
+    private val _sortField = mutableIntStateOf(settings?.sortField ?: 0)
+    /** 排序字段：0=名称 1=时长 2=大小 3=日期 4=类型（写入 SettingsManager 持久化） */
+    var sortField: Int
+        get() = _sortField.intValue
+        set(value) {
+            _sortField.intValue = value
+            settings?.sortField = value
+        }
+
+    private val _sortAsc = mutableStateOf(settings?.sortAsc ?: true)
+    /** 排序方向：true=升序 false=降序（写入 SettingsManager 持久化） */
+    var sortAsc: Boolean
+        get() = _sortAsc.value
+        set(value) {
+            _sortAsc.value = value
+            settings?.sortAsc = value
+        }
 }
 
 // ==================== 分类枚举 ====================

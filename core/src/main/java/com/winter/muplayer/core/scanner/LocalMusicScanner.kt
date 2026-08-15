@@ -89,14 +89,6 @@ class LocalMusicScanner(
         return tracks
     }
 
-    /** 强制重新扫描（清除磁盘缓存） */
-    fun forceRescan(): List<Track> {
-        cachedTracks = emptyList()
-        cacheLoaded = false
-        invalidateDiskCache()
-        return scanFull()
-    }
-
     /** 清掉缓存，下次 [scan] 会重新扫并更新磁盘缓存 */
     fun invalidateCache() {
         cacheLoaded = false

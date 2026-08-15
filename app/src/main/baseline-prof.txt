@@ -27,21 +27,14 @@ Lcom/winter/muplayer/ui/components/PlayModeButton;
 Lcom/winter/muplayer/ui/components/PlayPauseButton;
 Lcom/winter/muplayer/ui/components/formatDuration;
 Lcom/winter/muplayer/ui/components/AlbumThumb;
-Lcom/winter/muplayer/ui/components/FullPlayerPanel;
-Lcom/winter/muplayer/ui/components/MiniPlayerBar;
-Lcom/winter/muplayer/ui/components/QueueSheet;
-Lcom/winter/muplayer/ui/browser/MusicBrowserTabs;
-Lcom/winter/muplayer/ui/browser/MusicBrowserSort;
 Lcom/winter/muplayer/ui/browser/MusicBrowserList;
 Lcom/winter/muplayer/ui/browser/MusicBrowserState;
 Lcom/winter/muplayer/ui/theme/AppTheme;
-Lcom/winter/muplayer/ui/theme/WinterMuPlayerTheme;
 
 # ── Core ──
 Lcom/winter/muplayer/core/MusicPlayerCore;
 Lcom/winter/muplayer/core/engine/PlayerEngine;
 Lcom/winter/muplayer/core/engine/ExoPlayerEngine;
-Lcom/winter/muplayer/core/engine/QueueManager;
 Lcom/winter/muplayer/core/scanner/LocalMusicScanner;
 Lcom/winter/muplayer/core/SettingsManager;
 

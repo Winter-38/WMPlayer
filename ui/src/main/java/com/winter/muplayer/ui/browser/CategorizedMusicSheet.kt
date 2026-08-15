@@ -2,12 +2,10 @@ package com.winter.muplayer.ui.browser
 
 import com.winter.muplayer.ui.R
 import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -23,253 +21,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import android.widget.EditText
-import android.text.TextWatcher
-import android.text.Editable
-import android.os.Build
-import android.text.InputType
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.winter.muplayer.core.MusicIndexCache
-import com.winter.muplayer.core.MusicPlayerCore
 import com.winter.muplayer.model.Track
-import com.winter.muplayer.config.LocalSlotContext
 
 // 分类枚举移至 MusicBrowserState.kt
 
-// ==================== 本地音乐浏览（内嵌版，用于主界面） ====================
-
-/**
- * 本地音乐浏览组件 — 带「全部/歌手/专辑」Tab 和搜索。
- * 可直接放在任何 Column/Box 中，不包含 BottomSheet 封装。
- */
-@Composable
-fun LocalMusicBrowser(
-    tracks: List<Track>,
-    isLoading: Boolean,
-    coverCache: Map<Long, String>,
-    musicIndexCache: MusicIndexCache,
-    /** @param onTrackClick (点击的曲目, 当前分类上下文曲目列表) */
-    onTrackClick: (track: Track, contextTracks: List<Track>) -> Unit = { _, _ -> },
-    /** 外部传入的搜索关键词（搜索栏已移至 TopAppBar） */
-    searchQuery: String = ""
-) {
-    var selectedCategory by remember { mutableStateOf(MusicCategory.ALL) }
-    // 排序方式持久化 — 从 SettingsManager 读取，修改时同步写入
-    val context = LocalContext.current
-    val settings = remember { MusicPlayerCore.getInstance(context).settings }
-    var sortField by remember { mutableIntStateOf(settings.sortField) }
-    var sortAsc by remember { mutableStateOf(settings.sortAsc) }
-
-    // 排序方式修改 → 同步写入 SettingsManager
-    LaunchedEffect(sortField) { settings.sortField = sortField }
-    LaunchedEffect(sortAsc) { settings.sortAsc = sortAsc }
-
-    val sortNames = listOf(
-        stringResource(R.string.sort_name),
-        stringResource(R.string.sort_duration),
-        stringResource(R.string.sort_file_size),
-        stringResource(R.string.sort_date_added),
-        stringResource(R.string.sort_file_type)
-    )
-
-    val filteredTracks = remember(tracks, searchQuery, sortField, sortAsc) {
-        val base = if (searchQuery.isBlank()) tracks
-        else tracks.filter { track ->
-            track.title.contains(searchQuery, ignoreCase = true) ||
-                    track.artist.contains(searchQuery, ignoreCase = true) ||
-                    track.album.contains(searchQuery, ignoreCase = true)
-        }
-        val sorted = when (sortField) {
-            1 -> base.sortedBy { it.duration }
-            2 -> base.sortedBy { it.fileSize }
-            3 -> base.sortedBy { it.dateAdded }
-            4 -> base.sortedBy { it.fileType }
-            else -> base.sortedBy { it.title }
-        }
-        if (sortAsc) sorted else sorted.reversed()
-    }
-
-    val unknownArtist = stringResource(R.string.unknown_artist)
-    val unknownAlbum = stringResource(R.string.unknown_album)
-    // 歌手/专辑分组改为按需惰性计算——仅在对应 Tab 选中时才执行，
-    // 避免每次重组都遍历全量数据
-    val artistGroups = if (selectedCategory == MusicCategory.ARTIST) {
-        remember(filteredTracks, unknownArtist) {
-            filteredTracks.groupBy { it.artist.ifBlank { unknownArtist } }.toSortedMap()
-        }
-    } else emptyMap()
-    val albumGroups = if (selectedCategory == MusicCategory.ALBUM) {
-        remember(filteredTracks, unknownAlbum) {
-            filteredTracks.groupBy { it.album.ifBlank { unknownAlbum } }.toSortedMap()
-        }
-    } else emptyMap()
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        Crossfade(
-            targetState = when {
-                isLoading && tracks.isEmpty() -> 0
-                tracks.isEmpty() -> 1
-                else -> 2
-            },
-            animationSpec = tween(300),
-            label = "music_browser"
-        ) { state ->
-            when (state) {
-                0 -> {
-            // 加载中
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text(stringResource(R.string.scanning_music), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-        1 -> {
-            // 空状态
-            Box(
-                modifier = Modifier.fillMaxSize()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .offset(y = 40.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        painterResource(R.drawable.ic_music_off),
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        stringResource(R.string.no_music_found),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
-                }
-            }
-        }
-        2 -> {
-            // ========== Tab 栏 + 列表 ==========
-            Column(modifier = Modifier.fillMaxSize()) {
-                Box {
-                    TabRow(
-                        selectedTabIndex = selectedCategory.ordinal,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        MusicCategory.entries.forEach { category ->
-                            Tab(
-                                selected = selectedCategory == category,
-                                onClick = { selectedCategory = category },
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        val icon = when (category) {
-                                            MusicCategory.ALL -> R.drawable.ic_library_music
-                                            MusicCategory.ARTIST -> R.drawable.ic_person
-                                            MusicCategory.ALBUM -> R.drawable.ic_disc
-                                        }
-                                        Icon(
-                                            painterResource(icon),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(Modifier.width(4.dp))
-                                        Text(category.displayName())
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val summaryText = when (selectedCategory) {
-                        MusicCategory.ALL -> stringResource(R.string.track_count, filteredTracks.size)
-                        MusicCategory.ARTIST -> stringResource(R.string.artist_count, artistGroups.size)
-                        MusicCategory.ALBUM -> stringResource(R.string.album_count, albumGroups.size)
-                    }
-                    Text(
-                        text = summaryText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f)
-                    )
-                    var showSortMenu by remember { mutableStateOf(false) }
-                    Box {
-                        Text(
-                            text = stringResource(R.string.sort_label),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.clickable { showSortMenu = true }
-                        )
-                        DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                            sortNames.forEachIndexed { i, name ->
-                                DropdownMenuItem(
-                                    text = { Text(name, fontWeight = if (sortField == i) FontWeight.Bold else FontWeight.Normal) },
-                                    onClick = { sortField = i; showSortMenu = false },
-                                    trailingIcon = { if (sortField == i) Text("✓", fontWeight = FontWeight.Bold) }
-                                )
-                            }
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text(if (sortAsc) stringResource(R.string.sort_asc) else stringResource(R.string.sort_desc), fontWeight = FontWeight.Bold) },
-                                onClick = { sortAsc = !sortAsc; showSortMenu = false }
-                            )
-                        }
-                    }
-                }
-
-                when (selectedCategory) {
-                    MusicCategory.ALL -> AllSongsTab(
-                        tracks = filteredTracks,
-                        isLoading = isLoading,
-                        coverCache = coverCache,
-                        onTrackClick = { track -> onTrackClick(track, filteredTracks) }
-                    )
-                    MusicCategory.ARTIST -> ArtistTab(
-                        artistGroups = artistGroups,
-                        coverCache = coverCache,
-                        // 按曲目所属的歌手分组传递上下文
-                        onTrackClick = { track ->
-                            val artistName = track.artist.ifBlank { unknownArtist }
-                            val contextTracks = artistGroups[artistName] ?: listOf(track)
-                            onTrackClick(track, contextTracks)
-                        }
-                    )
-                    MusicCategory.ALBUM -> AlbumTab(
-                        albumGroups = albumGroups,
-                        coverCache = coverCache,
-                        // 按曲目所属的专辑分组传递上下文
-                        onTrackClick = { track ->
-                            val albumName = track.album.ifBlank { unknownAlbum }
-                            val contextTracks = albumGroups[albumName] ?: listOf(track)
-                            onTrackClick(track, contextTracks)
-                        }
-                    )
-                }
-
-                Spacer(Modifier.height(8.dp))
-            }
-        }
-            }
-        }
-    }
-}
 
 // ==================== Tab: 全部歌曲 ====================
 
@@ -278,13 +36,24 @@ fun AllSongsTab(
     tracks: List<Track>,
     isLoading: Boolean,
     coverCache: Map<Long, String>,
+    state: LazyListState,
     onTrackClick: (Track) -> Unit = {},
     onTrackLongClick: (Track) -> Unit = {}
 ) {
-    if (tracks.isEmpty()) {
+    if (isLoading) {
+        // 数据加载中：显示占位，不渲染列表。
+        // 确保 LazyColumn 首次出现在屏幕上即为全新滚动状态（顶部），
+        // 避免启动时闪现其他位置的列表帧。
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
+        }
+    } else if (tracks.isEmpty()) {
         EmptyState(stringResource(R.string.no_music))
     } else {
-        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+        LazyColumn(state = state, modifier = Modifier.fillMaxWidth()) {
             items(items = tracks, key = { "${it.id}" }) { track ->
                 TrackRow(
                     track = track,
@@ -303,13 +72,14 @@ fun AllSongsTab(
 fun ArtistTab(
     artistGroups: Map<String, List<Track>>,
     coverCache: Map<Long, String>,
+    state: LazyListState,
     onTrackClick: (Track) -> Unit = {},
     onTrackLongClick: (Track) -> Unit = {}
 ) {
     if (artistGroups.isEmpty()) {
         EmptyState(stringResource(R.string.no_music))
     } else {
-        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+        LazyColumn(state = state, modifier = Modifier.fillMaxWidth()) {
             val sortedArtists = artistGroups.entries.toList()
             sortedArtists.forEach { (artist, artistTracks) ->
                 item {
@@ -417,13 +187,14 @@ fun ArtistSection(
 fun AlbumTab(
     albumGroups: Map<String, List<Track>>,
     coverCache: Map<Long, String>,
+    state: LazyListState,
     onTrackClick: (Track) -> Unit = {},
     onTrackLongClick: (Track) -> Unit = {}
 ) {
     if (albumGroups.isEmpty()) {
         EmptyState(stringResource(R.string.no_music))
     } else {
-        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+        LazyColumn(state = state, modifier = Modifier.fillMaxWidth()) {
             val sortedAlbums = albumGroups.entries.toList()
             sortedAlbums.forEach { (album, albumTracks) ->
                 item {
@@ -661,106 +432,6 @@ fun EmptyState(message: String) {
     }
 }
 
-// ==================== 独立组件：Tab 栏 ====================
-
-/**
- * 音乐浏览器 Tab 栏 —— 全部 / 歌手 / 专辑。
- * 通过 LocalBrowserState 与排序 / 列表共享选中状态。
- */
-@Composable
-fun MusicBrowserTabs() {
-    val state = LocalBrowserState.current
-    TabRow(
-        selectedTabIndex = state.selectedCategory.ordinal,
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        MusicCategory.entries.forEach { category ->
-            Tab(
-                selected = state.selectedCategory == category,
-                onClick = { state.selectedCategory = category },
-                text = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        val icon = when (category) {
-                            MusicCategory.ALL -> R.drawable.ic_library_music
-                            MusicCategory.ARTIST -> R.drawable.ic_person
-                            MusicCategory.ALBUM -> R.drawable.ic_disc
-                        }
-                        Icon(
-                            painterResource(icon),
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(category.displayName())
-                    }
-                }
-            )
-        }
-    }
-}
-
-// ==================== 独立组件：排序按钮 ====================
-
-@Composable
-fun MusicBrowserSort() {
-    val state = LocalBrowserState.current
-    val sortNames = listOf(
-        stringResource(R.string.sort_name),
-        stringResource(R.string.sort_duration),
-        stringResource(R.string.sort_file_size),
-        stringResource(R.string.sort_date_added),
-        stringResource(R.string.sort_file_type)
-    )
-    var showSortMenu by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        val summaryText = when (state.selectedCategory) {
-            MusicCategory.ALL -> stringResource(R.string.track_count, state.tracks.size)
-            MusicCategory.ARTIST -> {
-                val groups = state.tracks.groupBy { it.artist.ifBlank { stringResource(R.string.unknown_artist) } }
-                stringResource(R.string.artist_count, groups.size)
-            }
-            MusicCategory.ALBUM -> {
-                val groups = state.tracks.groupBy { it.album.ifBlank { stringResource(R.string.unknown_album) } }
-                stringResource(R.string.album_count, groups.size)
-            }
-        }
-        Text(
-            text = summaryText,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f)
-        )
-        Box {
-            Text(
-                text = stringResource(R.string.sort_label),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.clickable { showSortMenu = true }
-            )
-            DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                sortNames.forEachIndexed { i, name ->
-                    DropdownMenuItem(
-                        text = { Text(name, fontWeight = if (state.sortField == i) FontWeight.Bold else FontWeight.Normal) },
-                        onClick = { state.sortField = i; showSortMenu = false },
-                        trailingIcon = { if (state.sortField == i) Text("✓", fontWeight = FontWeight.Bold) }
-                    )
-                }
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text(if (state.sortAsc) stringResource(R.string.sort_asc) else stringResource(R.string.sort_desc), fontWeight = FontWeight.Bold) },
-                    onClick = { state.sortAsc = !state.sortAsc; showSortMenu = false }
-                )
-            }
-        }
-    }
-}
-
 // ==================== 独立组件：歌曲列表 ====================
 
 @Composable
@@ -799,17 +470,37 @@ fun MusicBrowserList(
         filteredTracks.groupBy { it.album.ifBlank { unknownAlbum } }.toSortedMap()
     }
 
+    // 列表滚动状态：普通 remember + 按需重建（listKey）。
+    // 冷启动、排序变化、数据加载完成时都通过重建 LazyListState 实例
+    // 强制回到顶部 —— 新实例必然从位置 0 开始，从机制上排除任何
+    // 位置恢复/漂移的可能（比 scrollToItem 更彻底，不受协程时序影响）。
+    var listKey by remember { mutableIntStateOf(0) }
+
+    // 排序方式/方向变化 → 重建滚动状态，回到顶部
+    LaunchedEffect(state.sortField, state.sortAsc) {
+        listKey++
+    }
+
+    // 数据加载完成（冷启动/刷新/权限变化）→ 重建滚动状态，回到顶部
+    LaunchedEffect(state.isLoading) {
+        if (!state.isLoading) listKey++
+    }
+
+    val listState = remember(listKey) { LazyListState() }
+
     when (state.selectedCategory) {
         MusicCategory.ALL -> AllSongsTab(
             tracks = filteredTracks,
             isLoading = state.isLoading,
             coverCache = coverCache,
+            state = listState,
             onTrackClick = { track -> onTrackClick(track, filteredTracks) },
             onTrackLongClick = onTrackLongClick
         )
         MusicCategory.ARTIST -> ArtistTab(
             artistGroups = artistGroups,
             coverCache = coverCache,
+            state = listState,
             onTrackClick = { track ->
                 val artistName = track.artist.ifBlank { unknownArtist }
                 val contextTracks = artistGroups[artistName] ?: listOf(track)
@@ -820,6 +511,7 @@ fun MusicBrowserList(
         MusicCategory.ALBUM -> AlbumTab(
             albumGroups = albumGroups,
             coverCache = coverCache,
+            state = listState,
             onTrackClick = { track ->
                 val albumName = track.album.ifBlank { unknownAlbum }
                 val contextTracks = albumGroups[albumName] ?: listOf(track)
@@ -833,10 +525,10 @@ fun MusicBrowserList(
 // ==================== 辅助函数 ====================
 
 fun getAlbumArtUri(track: Track, coverCache: Map<Long, String>): Any? {
-    if (track.albumId > 0L) {
-        return android.net.Uri.parse(
+    // 优先本地原始内嵌封面缓存；未缓存时用 MediaStore 缩略图临时兜底
+    return coverCache[track.id] ?: if (track.albumId > 0L) {
+        android.net.Uri.parse(
             "content://media/external/audio/albumart/${track.albumId}"
         )
-    }
-    return coverCache[track.id]
+    } else null
 }

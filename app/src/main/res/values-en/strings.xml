@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">WMPlayer</string>
-    <string name="auto_scan">Auto Scan on Start</string>
 </resources>

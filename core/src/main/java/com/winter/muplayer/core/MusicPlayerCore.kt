@@ -28,7 +28,7 @@ import kotlinx.coroutines.sync.withLock
  *
  * 用完了记得调 [close] 或 [release] 释放资源哦，不然会漏的！
  */
-class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
+class MusicPlayerCore private constructor(context: Context) {
 
     // ==================== 播放状态持久化常量 ====================
 
@@ -77,11 +77,11 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
     /** 应用设置管理器 */
     val settings = SettingsManager(context)
 
-    /** 音乐索引缓存——避免 UI 反复构建歌手/专辑索引，含磁盘持久化 */
-    val musicIndexCache = MusicIndexCache(context)
-
     private val _playerState = MutableStateFlow(PlayerStateData())
     val playerState: StateFlow<PlayerStateData> = _playerState.asStateFlow()
+
+    /** 独立进度流（播放时每 250ms 更新），只喂给进度条，避免高频进度污染 playerState 拖垮全 UI 重组 */
+    val progressState: StateFlow<ProgressTracker.ProgressData> = progressTracker.progressState
 
     init {
         // 监听歌曲播完事件，自动切到下一首
@@ -110,18 +110,6 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
             }
         }
 
-        // 监听进度变化，同步到状态里
-        scope.launch {
-            progressTracker.progressState.collect { progressData ->
-                _playerState.update {
-                    it.copy(
-                        progress = progressData.progress,
-                        duration = progressData.duration
-                    )
-                }
-            }
-        }
-
         // 应用设置：默认播放模式、跨fade、音频焦点
         val savedMode = settings.defaultPlayMode
         if (savedMode != PlayMode.SEQUENTIAL) {
@@ -138,24 +126,10 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
      */
     private suspend fun prepareTrackInternal(track: Track) {
         _playerState.update {
-            it.copy(
-                currentTrack = track,
-                progress = 0L,
-                duration = track.duration
-            )
+            it.copy(currentTrack = track)
         }
         engine.prepare(track)
         progressTracker.start()
-    }
-
-    /** 准备一首歌，为播放做好准备～ */
-    fun prepareTrack(track: Track) {
-        scope.launch {
-            if (isReleased) return@launch
-            engineMutex.withLock {
-                prepareTrackInternal(track)
-            }
-        }
     }
 
     /** 用于后台服务的 applicationContext */
@@ -207,20 +181,6 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
         }
     }
 
-    /** 完全停下来 */
-    fun stop() {
-        if (isReleased) return
-        scope.launch {
-            engineMutex.withLock {
-                progressTracker.stop()
-                engine.stop()
-            }
-            // 停止后移除通知
-            MusicPlaybackService.currentService?.stopForegroundPlayback()
-            MusicPlaybackService.stop(appContextForBg)
-        }
-    }
-
     /** 下一首～会根据当前的播放模式算出下一首是什么 */
     fun playNext() {
         AppLogger.i("Player", "playNext")
@@ -235,10 +195,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
                 } else {
                     engine.stop()
                     _playerState.update {
-                        it.copy(
-                            state = PlayerState.IDLE,
-                            progress = 0L
-                        )
+                        it.copy(state = PlayerState.IDLE)
                     }
                 }
             }
@@ -295,34 +252,6 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
         }
     }
 
-    /**
-     * 将曲目插入到当前播放之后并立即播放（"下一首播放"）。
-     * 即使当前正在播放也会切到这首歌。
-     */
-    fun playTrack(track: Track) {
-        if (isReleased) return
-        scope.launch {
-            engineMutex.withLock {
-                val newIndex = queueManager.enqueueNext(track)
-                queueManager.setCurrentIndex(newIndex)
-                val currentTrack = queueManager.getCurrentTrack()
-                if (currentTrack != null) {
-                    progressTracker.stop()
-                    prepareTrackInternal(currentTrack)
-                    engine.play()
-                }
-            }
-        }
-    }
-
-    /** 一次加一堆歌到队列末尾～ */
-    fun addTracks(tracks: List<Track>) {
-        if (isReleased) return
-        scope.launch {
-            queueManager.enqueueAll(tracks)
-        }
-    }
-
     /** 从队列里移除指定位置的歌 */
     fun removeTrack(index: Int) {
         if (isReleased) return
@@ -342,28 +271,6 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
                 _playerState.update {
                     PlayerStateData()
                 }
-            }
-        }
-    }
-
-    override fun close() {
-        release()
-    }
-
-    /** 释放所有资源，播放器不再使用了就调这个～ */
-    fun release() {
-        if (isReleased) return
-        isReleased = true
-        scope.launch {
-            engineMutex.withLock {
-                progressTracker.stop()
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    engine.release()
-                }
-            }
-            scope.cancel()
-            synchronized(Companion) {
-                instance = null
             }
         }
     }
@@ -456,10 +363,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
                 } else {
                     progressTracker.stop()
                     _playerState.update {
-                        it.copy(
-                            state = PlayerState.IDLE,
-                            progress = 0L
-                        )
+                        it.copy(state = PlayerState.IDLE)
                     }
                 }
             }
@@ -477,7 +381,7 @@ class MusicPlayerCore private constructor(context: Context) : AutoCloseable {
         val ids = currentQueue.map { it.track.id }
         val index = queueManager.currentIndex.value
         val currentTrackId = _playerState.value.currentTrack?.id ?: -1L
-        val progress = _playerState.value.progress
+        val progress = progressTracker.progressState.value.progress
 
         playbackPrefs.edit()
             .putLong(KEY_LAST_TRACK_ID, currentTrackId)

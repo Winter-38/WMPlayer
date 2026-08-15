@@ -41,67 +41,7 @@ class PlaylistManager(context: Context) {
         }
     }
 
-    // ==================== 读取 ====================
-
-    /**
-     * 根据 ID 查找播放列表。
-     */
-    fun findById(id: Long): Playlist? {
-        ensureLoaded()
-        return _playlists.value.find { it.id == id }
-    }
-
     // ==================== 写入（自动持久化） ====================
-
-    /**
-     * 创建一个新的空播放列表。
-     *
-     * @param name 播放列表名称
-     * @return 新创建的 [Playlist]
-     */
-    suspend fun create(name: String): Playlist {
-        ensureLoaded()
-        return mutex.withLock {
-            val playlist = Playlist(
-                id = nextId++,
-                name = name.trim().ifBlank { "未命名播放列表" },
-                trackIds = emptyList(),
-                createTime = System.currentTimeMillis()
-            )
-            _playlists.update { it + playlist }
-            save()
-            playlist
-        }
-    }
-
-    /**
-     * 删除指定播放列表。
-     */
-    suspend fun delete(id: Long) {
-        ensureLoaded()
-        return mutex.withLock {
-            val removed = _playlists.value.find { it.id == id }
-            _playlists.update { list -> list.filter { it.id != id } }
-            save()
-        }
-    }
-
-    /**
-     * 重命名播放列表。
-     */
-    suspend fun rename(id: Long, newName: String) {
-        ensureLoaded()
-        return mutex.withLock {
-            _playlists.update { list ->
-                list.map { playlist ->
-                    if (playlist.id == id) playlist.copy(
-                        name = newName.trim().ifBlank { "未命名播放列表" }
-                    ) else playlist
-                }
-            }
-            save()
-        }
-    }
 
     /**
      * 向播放列表添加一首曲目。
@@ -115,56 +55,6 @@ class PlaylistManager(context: Context) {
                     if (playlist.id == playlistId && trackId !in playlist.trackIds) {
                         playlist.copy(trackIds = playlist.trackIds + trackId)
                     } else playlist
-                }
-            }
-            save()
-        }
-    }
-
-    /**
-     * 向播放列表批量添加曲目。
-     */
-    suspend fun addTracks(playlistId: Long, trackIds: List<Long>) {
-        ensureLoaded()
-        return mutex.withLock {
-            _playlists.update { list ->
-                list.map { playlist ->
-                    if (playlist.id == playlistId) {
-                        val merged = (playlist.trackIds.toSet() + trackIds.toSet()).toList()
-                        playlist.copy(trackIds = merged)
-                    } else playlist
-                }
-            }
-            save()
-        }
-    }
-
-    /**
-     * 从播放列表移除一首曲目。
-     */
-    suspend fun removeTrack(playlistId: Long, trackId: Long) {
-        ensureLoaded()
-        return mutex.withLock {
-            _playlists.update { list ->
-                list.map { playlist ->
-                    if (playlist.id == playlistId) {
-                        playlist.copy(trackIds = playlist.trackIds - trackId)
-                    } else playlist
-                }
-            }
-            save()
-        }
-    }
-
-    /**
-     * 清空播放列表中的所有曲目。
-     */
-    suspend fun clearTracks(playlistId: Long) {
-        ensureLoaded()
-        return mutex.withLock {
-            _playlists.update { list ->
-                list.map { playlist ->
-                    if (playlist.id == playlistId) playlist.copy(trackIds = emptyList()) else playlist
                 }
             }
             save()

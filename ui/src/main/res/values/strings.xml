@@ -12,19 +12,15 @@
     <string name="previous">上一首</string>
     <string name="next">下一首</string>
     <string name="playlist">播放列表</string>
-    <string name="refresh">刷新</string>
     <string name="execute">执行</string>
-    <string name="unknown">未知</string>
     <string name="off">关闭</string>
 
     <!-- ==================== 播放器界面 ==================== -->
-    <string name="plugin_manager">插件管理</string>
     <string name="not_playing">未在播放</string>
     <string name="no_track_selected">未选择曲目</string>
     <string name="current_playlist">当前播放</string>
     <string name="queue_empty">播放队列为空</string>
     <string name="track_detail">曲目详情</string>
-    <string name="search">搜索</string>
 
     <!-- 播放模式 -->
     <string name="mode_sequential">顺序</string>
@@ -77,7 +73,6 @@
     <string name="section_display">显示主题</string>
     <string name="section_scan">音乐扫描</string>
     <string name="section_storage">存储</string>
-    <string name="section_extensions">扩展</string>
     <string name="section_about">关于</string>
 
     <!-- 播放设置 -->
@@ -122,7 +117,6 @@
     <string name="label_package">包名</string>
     <string name="label_compile_sdk">编译 SDK</string>
     <string name="label_device">设备</string>
-    <string name="framework_info">基于 Shadow 插件框架 · Jetpack Compose + Material3</string>
 
     <!-- ==================== 歌曲操作 ==================== -->
     <string name="add_to_playlist">添加到播放列表</string>
@@ -131,16 +125,6 @@
     <string name="delete_song_confirm">确定删除「%s」？此操作不可撤销。</string>
 
     <!-- ==================== 插件管理 ==================== -->
-    <string name="plugin_manager_title">插件管理</string>
-    <string name="no_plugins">暂无已安装的插件</string>
-    <string name="no_plugins_hint">将 Lua 插件目录放入 lua_plugins 后刷新</string>
     <string name="audio_permission_required">需要音频权限才能读取本地音乐</string>
-    <string name="import_zip">导入 ZIP</string>
-    <string name="no_plugins_hint_zip">点击右上角「导入 ZIP」安装插件</string>
-    <string name="plugin_installed">插件已安装</string>
-    <string name="plugin_install_failed">安装失败：ZIP 格式错误或缺少 manifest.json</string>
-    <string name="confirm_uninstall_title">确认卸载</string>
-    <string name="confirm_uninstall_text">确定要卸载插件「%s」吗？\n插件目录和相关文件将被删除。</string>
     <string name="cancel">取消</string>
-    <string name="uninstall">卸载</string>
 </resources>

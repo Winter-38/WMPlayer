@@ -301,10 +301,6 @@ class PlayQueueManager {
         }
     }
 
-    suspend fun getQueueSize(): Int = mutex.withLock {
-        _queue.value.size
-    }
-
     suspend fun isEmpty(): Boolean = mutex.withLock {
         _queue.value.isEmpty()
     }

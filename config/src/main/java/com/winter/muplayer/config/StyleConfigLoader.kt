@@ -1,9 +1,6 @@
 package com.winter.muplayer.config
 
 import android.content.Context
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,10 +26,6 @@ class StyleConfigLoader(private val context: Context) {
     private val _cssRules: MutableStateFlow<CssRuleTable>
     val cssRules: StateFlow<CssRuleTable>
 
-    /** 所有已加载配置文件中最新的修改时间，用于外部监听热重载 */
-    var fileLastModified by mutableStateOf(0L)
-        private set
-
     private val configDir: File
         get() {
             val extDir = context.getExternalFilesDir(null)
@@ -48,7 +41,6 @@ class StyleConfigLoader(private val context: Context) {
             _cssRules = MutableStateFlow(ConfigPreload.css ?: CssRuleTable())
             config = _config.asStateFlow()
             cssRules = _cssRules.asStateFlow()
-            fileLastModified = System.currentTimeMillis()
         } else {
             // 缓存未命中 → 跳同步读文件，用空默认值，initialize() 负责异步加载
             _config = MutableStateFlow(ComponentLayout())
@@ -78,17 +70,13 @@ class StyleConfigLoader(private val context: Context) {
         if (!mainFile.isFile) {
             _config.value = ComponentLayout()
             _cssRules.value = loadCssFiles()
-            fileLastModified = 0L
             return
         }
 
         try {
-            fileLastModified = mainFile.lastModified()
-
             // 对象格式：{ "slot名": [...] }，支持 include
-            val (merged, latestMod) = resolveWithIncludes(mainFile, mutableSetOf())
+            val (merged, _) = resolveWithIncludes(mainFile, mutableSetOf())
             _config.value = parseConfigObject(merged)
-            if (latestMod > fileLastModified) fileLastModified = latestMod
 
             _cssRules.value = loadCssFiles()
         } catch (e: Exception) {
@@ -186,6 +174,8 @@ class StyleConfigLoader(private val context: Context) {
                 appendLine("")
                 appendLine(".main       { arrange: column; gap: 8px; }")
                 appendLine(".app-top    { arrange: row;    weight: 0; }")
+                appendLine("#search-button  { size: 40px; }")
+                appendLine("#setting-button { size: 40px; }")
                 appendLine("#spacer     { weight: 1; }")
                 appendLine(".app-center { arrange: column; weight: 1; }")
                 appendLine(".app-bottom { arrange: row;    weight: 0; }")

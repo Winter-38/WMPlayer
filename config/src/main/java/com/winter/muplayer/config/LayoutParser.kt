@@ -133,7 +133,13 @@ object LayoutParser {
         var inString = false
         while (i < json.length) {
             val c = json[i]
-            if (c == '"' && (i == 0 || json[i - 1] != '\\')) inString = !inString
+            if (c == '"') {
+                // 统计引号前连续反斜杠数量：奇数个 = 转义引号（不切换字符串状态），偶数个 = 字符串边界
+                var backslashes = 0
+                var j = i - 1
+                while (j >= 0 && json[j] == '\\') { backslashes++; j-- }
+                if (backslashes % 2 == 0) inString = !inString
+            }
             if (!inString && c == '/' && i + 1 < json.length) {
                 val next = json[i + 1]
                 if (next == '/') {

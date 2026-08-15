@@ -12,20 +12,15 @@
     <string name="previous">Previous</string>
     <string name="next">Next</string>
     <string name="playlist">Queue</string>
-    <string name="refresh">Refresh</string>
-    <string name="uninstall">Uninstall</string>
     <string name="execute">Run</string>
-    <string name="unknown">Unknown</string>
     <string name="off">Off</string>
 
     <!-- ==================== Player UI ==================== -->
-    <string name="plugin_manager">Plugins</string>
     <string name="not_playing">Not Playing</string>
     <string name="no_track_selected">No Track</string>
     <string name="current_playlist">Now Playing</string>
     <string name="queue_empty">Queue is empty</string>
     <string name="track_detail">Track Info</string>
-    <string name="search">Search</string>
 
     <!-- Play modes -->
     <string name="mode_sequential">Sequential</string>
@@ -78,7 +73,6 @@
     <string name="section_display">Display</string>
     <string name="section_scan">Scanning</string>
     <string name="section_storage">Storage</string>
-    <string name="section_extensions">Extensions</string>
     <string name="section_about">About</string>
     <string name="section_language">Language</string>
 
@@ -121,7 +115,6 @@
     <string name="label_package">Package</string>
     <string name="label_compile_sdk">SDK</string>
     <string name="label_device">Device</string>
-    <string name="framework_info">Powered by Shadow Plugin · Jetpack Compose + Material3</string>
 
     <!-- ==================== Song Operations ==================== -->
     <string name="add_to_playlist">Add to Playlist</string>
@@ -130,15 +123,6 @@
     <string name="delete_song_confirm">Delete \"%s\"? This cannot be undone.</string>
 
     <!-- ==================== Plugin Manager ==================== -->
-    <string name="plugin_manager_title">Plugins</string>
-    <string name="no_plugins">No plugins</string>
-    <string name="no_plugins_hint">Place Lua plugin dirs under lua_plugins and refresh</string>
     <string name="audio_permission_required">Permission required to read local music</string>
-    <string name="import_zip">Import ZIP</string>
-    <string name="no_plugins_hint_zip">Import a plugin ZIP</string>
-    <string name="plugin_installed">Installed</string>
-    <string name="plugin_install_failed">Invalid ZIP or missing manifest.json</string>
-    <string name="confirm_uninstall_title">Uninstall?</string>
-    <string name="confirm_uninstall_text">Remove \"%s\" and all its files?</string>
     <string name="cancel">Cancel</string>
 </resources>

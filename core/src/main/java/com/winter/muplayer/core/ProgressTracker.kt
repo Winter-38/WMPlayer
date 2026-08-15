@@ -64,12 +64,17 @@ class ProgressTracker(
     private fun startProgressUpdates() {
         if (progressUpdateJob?.isActive == true) return
         progressUpdateJob = scope.launch {
-            while (isActive && engine.isReady()) {
-                _progressState.update {
-                    ProgressData(
-                        progress = engine.getCurrentPosition(),
-                        duration = engine.getDuration()
-                    )
+            // 注意：不能用 engine.isReady() 作为 while 条件 —— 播放过程中
+            // 短暂离开 READY（seek 缓冲、网络/IO 卡顿等）会导致循环退出且
+            // 不会重启，进度条从此冻结。改为循环常驻，仅 READY 时更新。
+            while (isActive) {
+                if (engine.isReady()) {
+                    _progressState.update {
+                        ProgressData(
+                            progress = engine.getCurrentPosition(),
+                            duration = engine.getDuration()
+                        )
+                    }
                 }
                 delay(250L)
             }

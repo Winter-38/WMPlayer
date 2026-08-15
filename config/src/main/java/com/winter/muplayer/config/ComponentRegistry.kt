@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import com.winter.muplayer.core.MusicPlayerCore
+import com.winter.muplayer.core.ProgressTracker
 import com.winter.muplayer.model.PlayMode
 import com.winter.muplayer.model.PlayerStateData
 import com.winter.muplayer.model.Track
@@ -59,6 +60,9 @@ val LocalSlotContext = compositionLocalOf<SlotContext> {
 
 /** CompositionLocal 承载当前组件的 extra 属性（来自 JSON layout） */
 val LocalComponentExtra = compositionLocalOf<Map<String, Any?>> { emptyMap() }
+
+/** CompositionLocal 承载当前播放进度 —— 独立于 playerState，仅进度条订阅，避免高频进度更新拖垮全 UI 重组 */
+val LocalProgress = compositionLocalOf { ProgressTracker.ProgressData() }
 
 /**
  * 组件注册表 —— 全局单例。

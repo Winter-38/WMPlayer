@@ -21,27 +21,28 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    signingConfigs {
-        create("release") {
-            storeFile = rootProject.file("wmplayer-key.jks")
-            val localFile = rootProject.file("local.properties")
-            fun localProp(key: String): String = localFile.takeIf { it.exists() }
-                ?.readLines()
-                ?.firstOrNull { it.startsWith("$key=") }
-                ?.substringAfter("=")
-                ?.trim()
-                ?: error("$key not set in local.properties")
-            storePassword = localProp("keystore.storePassword")
-            keyAlias = localProp("keystore.keyAlias")
-            keyPassword = localProp("keystore.keyPassword")
-        }
-    }
+    //signingConfigs {
+        //create("release") {
+            //storeFile = rootProject.file("wmplayer-key.jks")
+           // val localFile = rootProject.file("local.properties")
+            //fun localProp(key: String): String = localFile.takeIf { it.exists() }
+                //?.readLines()
+               // ?.firstOrNull { it.startsWith("$key=") }
+                //?.substringAfter("=")
+               // ?.trim()
+                //?: error("$key not set in local.properties")
+            //storePassword = localProp("keystore.storePassword")
+           // keyAlias = localProp("keystore.keyAlias")
+            //keyPassword = localProp("keystore.keyPassword")
+        //}
+    //}
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            //
+            // signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
