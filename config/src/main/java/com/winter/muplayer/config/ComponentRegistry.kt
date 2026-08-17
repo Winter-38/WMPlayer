@@ -41,6 +41,8 @@ class SlotContext(
     val onPlayModeChange: (PlayMode) -> Unit = {},
     val playMode: PlayMode = PlayMode.SEQUENTIAL,
     val adaptiveTint: Color = Color.Unspecified,
+    /** 全屏播放器是否启用封面模糊背景（来自设置，fp-backdrop 组件据此渲染） */
+    val blurBackground: Boolean = false,
     /** 父 slot 的 CSS arrange 值（"row"/"column"/null），组件可据此切换竖向/横向布局 */
     val slotArrange: String? = null,
 )

@@ -7,7 +7,25 @@ import java.io.File
 /**
  * JSON 布局配置文件解析器。
  *
- * 每个 slot value 是组件数组，每项支持两种格式：
+ * ## 格式 v2（对象化 slot）
+ *
+ * 界面的内容为对象 `{}`，里面不同的名字对应不同 slot：
+ * ```json
+ * { "screen": { "slot1": ["compose1", "compose2"], "slot2": [...] } }
+ * ```
+ *
+ * 子 slot 继续细分 slot 时，在组件数组内嵌命名子 slot：
+ * ```json
+ * { "slot1": ["normal-compose1", { "name": "children-slot", "children": ["child-1", "child-2"] }, "normal-compose2"] }
+ * ```
+ *
+ * 若 slot / 容器名与已知 **slot 型组件** id 一致（如 `fp-backdrop`），
+ * 解析为 slot 型组件：自身渲染为背景层（fillMaxSize），children 作为前景层叠加。
+ * ```json
+ * { "main": { "fp-backdrop": ["fp-track-title", "fp-cover"] } }
+ * ```
+ *
+ * ## 组件数组元素格式
  * - 字符串：`"app-name"` → ComponentEntry("app-name", isCustom=false)
  *           `"#my-button"` → ComponentEntry("my-button", isCustom=true)
  *           `"#my-button@my-id"` → ComponentEntry("my-button", cid="my-id", isCustom=true)
@@ -17,20 +35,34 @@ import java.io.File
  *   `{ "#icon@search-icon": { "icon": "ic_search" } }` → 带 cid（@ 语法）
  *   cid 只能从 key 的 @ 语法取，value 中声明无效
  *   保留 key（不进 extra）：class / name / children
- * - 对象（多 key 或所有 value 都是数组）：
- *   `{ "top-row": ["#tab-bar"], "body": ["#playlist"] }`
+ * - 对象（单 key，value 是数组）：
+ *   `{ "fp-backdrop": [...] }` → key 是 slot 型组件 id → 容器组件
+ *   `{ "slotA": [...] }` → 其他名字 → 子 slot 声明（匿名容器）
+ * - 对象（name + children）：`{ "name": "children-slot", "children": [...] }` → 命名子 slot 容器
+ * - 对象（多 key 或所有 value 都是数组）：`{ "top-row": ["#tab-bar"], "body": ["#playlist"] }`
  *   → 自动视为子 slot 字典，等效于嵌入一个容器组件
  */
 object LayoutParser {
 
+    /**
+     * 已知的 slot 型（容器）组件 id —— 作为 slot / 容器名出现时解析为容器组件：
+     * 自身渲染为背景层（fillMaxSize），children 作为前景层叠加。
+     * 当前：`fp-backdrop`（封面模糊背景层）。
+     */
+    val SLOT_COMPONENT_IDS: Set<String> = setOf("fp-backdrop")
+
+    /** 数组形式 children 自动包装的匿名子 slot 名（CSS 用 `.content` 定位） */
+    const val DEFAULT_CHILD_SLOT = "content"
+
+    /** 匿名容器组件 id：渲染时未注册 → 背景层透明，仅前景 children 显示 */
+    const val ANONYMOUS_CONTAINER = "__slot__"
+
     fun parseSlotValue(value: Any): List<ComponentEntry> {
-        val arr = when (value) {
-            is JSONArray -> value
-            is JSONObject -> value.optJSONArray("children")
-                ?: throw IllegalArgumentException("Slot object must have a \"children\" array")
+        return when (value) {
+            is JSONArray -> parseComponents(value)
+            is JSONObject -> listOf(parseObjectContainer(value))
             else -> throw IllegalArgumentException("Slot value must be array or object, got: $value")
         }
-        return parseComponents(arr)
     }
 
     private fun parseComponents(arr: JSONArray): List<ComponentEntry> {
@@ -46,50 +78,118 @@ object LayoutParser {
                     val (id, cid) = splitAt(raw, '@')
                     if (id.isNotBlank()) result.add(ComponentEntry(id, cid = cid, isCustom = isCustom))
                 }
-                is JSONObject -> {
-                    val keys = item.keys().asSequence().toList()
-                    val firstKey = keys.firstOrNull()
-
-                    if (keys.size == 1 && firstKey != null) {
-                        val value = item.get(firstKey)
-                        if (value is JSONObject) {
-                            // 组件声明：{ "#icon@search-icon": { "icon": "ic_search" } }
-                            // cid 只能从 key 的 @ 语法取，不允许在 value 里声明
-                            val isCustom = firstKey.startsWith("#")
-                            val raw = normalizeId(firstKey)
-                            if (raw.isBlank()) continue
-                            val (id, cid) = splitAt(raw, '@')
-                            if (id.isBlank()) continue
-                            val extra = mutableMapOf<String, Any?>()
-                            for (k in value.keys()) {
-                                when (k) {
-                                    "class", "name", "children" -> { /* 保留 key */ }
-                                    else -> extra[k] = value.get(k)
-                                }
-                            }
-                            val rawChildren = value.optJSONObject("children")
-                            if (rawChildren != null) {
-                                extra["children"] = parseChildrenMap(rawChildren)
-                            }
-                            result.add(ComponentEntry(id, cid = cid, extra = extra, isCustom = isCustom))
-                        } else {
-                            // value 不是对象 → 尝试作为子 slot 字典
-                            val childSlots = parseChildrenMap(item)
-                            if (childSlots.isNotEmpty()) {
-                                result.add(ComponentEntry("__slot__", extra = mapOf("children" to childSlots)))
-                            }
-                        }
-                    } else {
-                        // 多 key → 子 slot 字典：{ "top-row": ["#tab-bar"], "body": ["#playlist"] }
-                        val childSlots = parseChildrenMap(item)
-                        if (childSlots.isNotEmpty()) {
-                            result.add(ComponentEntry("__slot__", extra = mapOf("children" to childSlots)))
-                        }
-                    }
-                }
+                is JSONObject -> result.addAll(parseObjectElement(item))
             }
         }
         return result
+    }
+
+    /**
+     * 解析组件数组中的对象元素：
+     * - `{ "name": X, "children": [...] }` → 命名子 slot 容器（X 为 slot 型组件 id 时解析为容器组件）
+     * - `{ key: value }`（单 key）→ slot 型组件 / 组件声明 / 子 slot 声明
+     * - 多 key → 子 slot 字典（匿名容器）
+     */
+    private fun parseObjectElement(item: JSONObject): List<ComponentEntry> {
+        val keys = item.keys().asSequence().toList()
+        if (keys.isEmpty()) return emptyList()
+
+        // ── name + children 命名子 slot：{ "name": "children-slot", "children": [...] } ──
+        if (keys.size == 2 && item.has("name") && item.has("children")) {
+            val name = item.getString("name").trim()
+            if (name.isBlank()) throw IllegalArgumentException("'name' must not be blank in $item")
+            val childrenValue = item.get("children")
+            return if (name in SLOT_COMPONENT_IDS) {
+                // name 是 slot 型组件 id → 解析为容器组件（自身作背景层）
+                listOf(ComponentEntry(name, extra = mapOf("children" to childrenMapOf(childrenValue))))
+            } else {
+                // 普通命名子 slot：名字用于 CSS 定位（.name）
+                listOf(ComponentEntry(ANONYMOUS_CONTAINER, extra = mapOf("children" to mapOf(name to parseChildrenValue(childrenValue)))))
+            }
+        }
+
+        // ── 单 key 对象 ──
+        val firstKey = keys.first()
+        if (keys.size == 1) {
+            val value = item.get(firstKey)
+
+            // key 是 slot 型组件 id → 容器组件：{ "fp-backdrop": [...] } / { "fp-backdrop": { ... } }
+            if (firstKey in SLOT_COMPONENT_IDS) {
+                return listOf(ComponentEntry(firstKey, extra = mapOf("children" to childrenMapOf(value))))
+            }
+
+            if (value is JSONArray) {
+                // 子 slot 声明：{ "slotA": [...] } → 匿名容器，slotA 作为子 slot
+                return listOf(ComponentEntry(ANONYMOUS_CONTAINER, extra = mapOf("children" to mapOf(firstKey to parseComponents(value)))))
+            }
+
+            if (value is JSONObject) {
+                // 组件声明：{ "#icon@search-icon": { "icon": "ic_search" } }
+                // cid 只能从 key 的 @ 语法取，不允许在 value 里声明
+                val isCustom = firstKey.startsWith("#")
+                val raw = normalizeId(firstKey)
+                if (raw.isBlank()) return emptyList()
+                val (id, cid) = splitAt(raw, '@')
+                if (id.isBlank()) return emptyList()
+                val extra = mutableMapOf<String, Any?>()
+                for (k in value.keys()) {
+                    when (k) {
+                        "class", "name", "children" -> { /* 保留 key */ }
+                        else -> extra[k] = value.get(k)
+                    }
+                }
+                val rawChildren = value.optJSONObject("children")
+                if (rawChildren != null) {
+                    extra["children"] = parseChildrenSlots(rawChildren)
+                }
+                return listOf(ComponentEntry(id, cid = cid, extra = extra, isCustom = isCustom))
+            }
+
+            throw IllegalArgumentException("Unsupported component object: $item")
+        }
+
+        // ── 多 key → 子 slot 字典：{ "top-row": ["#tab-bar"], "body": ["#playlist"] } ──
+        val childSlots = parseChildrenSlots(item)
+        if (childSlots.isNotEmpty()) {
+            return listOf(ComponentEntry(ANONYMOUS_CONTAINER, extra = mapOf("children" to childSlots)))
+        }
+        return emptyList()
+    }
+
+    /**
+     * 解析 slot 值（对象形式）→ 单个容器组件。
+     * 单 key 且是 slot 型组件 id → 容器组件；否则 → 子 slot 字典匿名容器。
+     */
+    private fun parseObjectContainer(obj: JSONObject): ComponentEntry {
+        val keys = obj.keys().asSequence().toList()
+        if (keys.size == 1) {
+            val key = keys.first()
+            if (key in SLOT_COMPONENT_IDS) {
+                return ComponentEntry(key, extra = mapOf("children" to childrenMapOf(obj.get(key))))
+            }
+        }
+        return ComponentEntry(ANONYMOUS_CONTAINER, extra = mapOf("children" to parseChildrenSlots(obj)))
+    }
+
+    /**
+     * children 值 → 子 slot 字典：
+     * - 数组 → 包装为单个匿名子 slot（[DEFAULT_CHILD_SLOT]）
+     * - 对象 → 子 slot 字典；兼容旧格式包装 `{ "children": { ... } }`
+     */
+    private fun childrenMapOf(value: Any): Map<String, List<ComponentEntry>> = when (value) {
+        is JSONArray -> mapOf(DEFAULT_CHILD_SLOT to parseComponents(value))
+        is JSONObject -> {
+            // 兼容旧格式：{ "children": { "slotA": [...] } } → 取 children 对象为子 slot 字典
+            val wrapped = value.optJSONObject("children")
+            if (wrapped != null && value.length() == 1) parseChildrenSlots(wrapped)
+            else parseChildrenSlots(value)
+        }
+        else -> throw IllegalArgumentException("children must be an array or object, got: $value")
+    }
+
+    private fun parseChildrenValue(value: Any): List<ComponentEntry> = when (value) {
+        is JSONArray -> parseComponents(value)
+        else -> throw IllegalArgumentException("children must be a JSON array, got: $value")
     }
 
     /**
@@ -98,7 +198,7 @@ object LayoutParser {
      * { "slot-a": ["#comp1"], "slot-b": ["#comp2", "#comp3"] }
      * ```
      */
-    private fun parseChildrenMap(json: JSONObject): Map<String, List<ComponentEntry>> {
+    private fun parseChildrenSlots(json: JSONObject): Map<String, List<ComponentEntry>> {
         val result = linkedMapOf<String, List<ComponentEntry>>()
         for (key in json.keys()) {
             val value = json.get(key)

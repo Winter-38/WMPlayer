@@ -104,6 +104,8 @@
     <string name="auto_scan">Auto Scan</string>
     <string name="auto_scan_subtitle">Scan on launch</string>
     <string name="rescan_music">Rescan Now</string>
+    <string name="reload_config">Reload Config</string>
+    <string name="config_reloaded">Config reloaded</string>
 
     <!-- Storage -->
     <string name="clear_cache">Clear Cache</string>

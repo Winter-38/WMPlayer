@@ -4,6 +4,7 @@
 # ==================== 数据模型 ====================
 # 反射 / 序列化
 -keep class com.winter.muplayer.model.** { *; }
+-keep class com.winter.muplayer.ui.** { *; }
 
 # ==================== Shadow 插件框架 ====================
 -keep class com.winter.muplayer.plugin_runtime.** { *; }
@@ -51,6 +52,11 @@
     public void e(java.lang.String, java.lang.String);
     public static void e(java.lang.String, java.lang.String);
 }
+
+# ==================== 嵌套数据类保留 ====================
+# ProgressData 是 ProgressTracker 的嵌套 data class，-keep ProgressTracker 不覆盖嵌套类，
+# 它是公开 API progressState 的类型（MusicPlayerCore 暴露给 UI 层），必须保留防止运行时 NoClassDefFoundError
+-keep class com.winter.muplayer.core.ProgressTracker$ProgressData { *; }
 
 # ==================== 压缩优化（保守）====================
 -optimizationpasses 2

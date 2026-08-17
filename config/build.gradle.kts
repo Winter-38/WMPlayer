@@ -33,4 +33,8 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation("androidx.compose.foundation:foundation")
     implementation(libs.androidx.compose.material3)
+
+    // 单元测试：JUnit + org.json（JVM 版，替代 Android stub 的 org.json）
+    testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
 }

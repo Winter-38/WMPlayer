@@ -32,7 +32,8 @@ fun SettingsScreen(
     onSetPlayMode: (com.winter.muplayer.model.PlayMode) -> Unit = {},
     cacheInfo: CacheInfo = CacheInfo(),
     onCrossfadeChange: (Int) -> Unit = {},
-    onLanguageChange: () -> Unit = {}
+    onLanguageChange: () -> Unit = {},
+    onReloadConfig: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -91,6 +92,14 @@ fun SettingsScreen(
                     title = stringResource(R.string.rescan_music),
                     subtitle = null,
                     onClick = onRescan,
+                    showArrow = false
+                )
+            }
+            item {
+                SettingsActionItem(
+                    title = stringResource(R.string.reload_config),
+                    subtitle = null,
+                    onClick = onReloadConfig,
                     showArrow = false
                 )
             }

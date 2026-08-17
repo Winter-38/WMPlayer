@@ -13,3 +13,6 @@ gradle/wrapper/gradle-wrapper.jar
 *.jks
 *.keystore
 /record/
+/app/release/
+/.codewhale-tmp/
+/.deepseek/

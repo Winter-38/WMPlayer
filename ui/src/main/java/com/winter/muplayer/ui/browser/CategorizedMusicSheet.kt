@@ -19,8 +19,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -38,7 +41,8 @@ fun AllSongsTab(
     coverCache: Map<Long, String>,
     state: LazyListState,
     onTrackClick: (Track) -> Unit = {},
-    onTrackLongClick: (Track) -> Unit = {}
+    onTrackLongClick: (Track) -> Unit = {},
+    itemStyle: ItemStyle = ItemStyle()
 ) {
     if (isLoading) {
         // 数据加载中：显示占位，不渲染列表。
@@ -59,7 +63,8 @@ fun AllSongsTab(
                     track = track,
                     coverCache = coverCache,
                     onClick = { onTrackClick(track) },
-                    onLongClick = { onTrackLongClick(track) }
+                    onLongClick = { onTrackLongClick(track) },
+                    itemStyle = itemStyle
                 )
             }
         }
@@ -74,7 +79,8 @@ fun ArtistTab(
     coverCache: Map<Long, String>,
     state: LazyListState,
     onTrackClick: (Track) -> Unit = {},
-    onTrackLongClick: (Track) -> Unit = {}
+    onTrackLongClick: (Track) -> Unit = {},
+    itemStyle: ItemStyle = ItemStyle()
 ) {
     if (artistGroups.isEmpty()) {
         EmptyState(stringResource(R.string.no_music))
@@ -88,7 +94,8 @@ fun ArtistTab(
                         tracks = artistTracks,
                         coverCache = coverCache,
                         onTrackClick = onTrackClick,
-                        onTrackLongClick = onTrackLongClick
+                        onTrackLongClick = onTrackLongClick,
+                        itemStyle = itemStyle
                     )
                 }
             }
@@ -102,7 +109,8 @@ fun ArtistSection(
     tracks: List<Track>,
     coverCache: Map<Long, String>,
     onTrackClick: (Track) -> Unit = {},
-    onTrackLongClick: (Track) -> Unit = {}
+    onTrackLongClick: (Track) -> Unit = {},
+    itemStyle: ItemStyle = ItemStyle()
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
@@ -172,7 +180,8 @@ fun ArtistSection(
                             track = track,
                             coverCache = coverCache,
                             onClick = { onTrackClick(track) },
-                            onLongClick = { onTrackLongClick(track) }
+                            onLongClick = { onTrackLongClick(track) },
+                            itemStyle = itemStyle
                         )
                     }
                 }
@@ -189,7 +198,8 @@ fun AlbumTab(
     coverCache: Map<Long, String>,
     state: LazyListState,
     onTrackClick: (Track) -> Unit = {},
-    onTrackLongClick: (Track) -> Unit = {}
+    onTrackLongClick: (Track) -> Unit = {},
+    itemStyle: ItemStyle = ItemStyle()
 ) {
     if (albumGroups.isEmpty()) {
         EmptyState(stringResource(R.string.no_music))
@@ -203,7 +213,8 @@ fun AlbumTab(
                         tracks = albumTracks,
                         coverCache = coverCache,
                         onTrackClick = onTrackClick,
-                        onTrackLongClick = onTrackLongClick
+                        onTrackLongClick = onTrackLongClick,
+                        itemStyle = itemStyle
                     )
                 }
             }
@@ -217,7 +228,8 @@ fun AlbumSection(
     tracks: List<Track>,
     coverCache: Map<Long, String>,
     onTrackClick: (Track) -> Unit = {},
-    onTrackLongClick: (Track) -> Unit = {}
+    onTrackLongClick: (Track) -> Unit = {},
+    itemStyle: ItemStyle = ItemStyle()
 ) {
     var expanded by remember { mutableStateOf(false) }
     val albumTrack = tracks.firstOrNull()
@@ -277,7 +289,8 @@ fun AlbumSection(
                             track = track,
                             coverCache = coverCache,
                             onClick = { onTrackClick(track) },
-                            onLongClick = { onTrackLongClick(track) }
+                            onLongClick = { onTrackLongClick(track) },
+                            itemStyle = itemStyle
                         )
                     }
                 }
@@ -285,6 +298,30 @@ fun AlbumSection(
         }
     }
 }
+
+// ==================== 条目样式 ====================
+
+/**
+ * 播放列表条目样式 —— 由 `#playlist` 组件 CSS 的 `item-*` 属性解析而来。
+ * 所有字段可空：null = 使用 Material 主题默认样式。
+ *
+ * 对应 CSS 属性：
+ * - `item-bg` / `item-background`：条目背景色（支持 hex / rgb() / rgba()）
+ * - `item-radius`：条目圆角（px / dp）
+ * - `item-color` / `item-text-color`：主文字（歌名）颜色
+ * - `item-font-size`：主文字字号（px / dp）
+ * - `item-sub-color`：副文字（歌手 • 专辑）颜色
+ * - `item-sub-size`：副文字字号
+ */
+data class ItemStyle(
+    val background: Color? = null,
+    val radius: Dp? = null,
+    val titleColor: Color? = null,
+    val titleSize: TextUnit? = null,
+    val subColor: Color? = null,
+    val subSize: TextUnit? = null,
+    val fontFamily: FontFamily? = null,
+)
 
 // ==================== 单曲行 ====================
 
@@ -294,7 +331,8 @@ fun TrackRow(
     track: Track,
     coverCache: Map<Long, String>,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = {}
+    onLongClick: () -> Unit = {},
+    itemStyle: ItemStyle = ItemStyle()
 ) {
     Card(
         modifier = Modifier
@@ -304,9 +342,10 @@ fun TrackRow(
                 onClick = onClick,
                 onLongClick = onLongClick,
             ),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(itemStyle.radius ?: 12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
+            containerColor = itemStyle.background
+                ?: MaterialTheme.colorScheme.secondaryContainer
         )
     ) {
         Row(
@@ -332,17 +371,25 @@ fun TrackRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = track.title,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = itemStyle.titleSize?.let {
+                        MaterialTheme.typography.bodyLarge.copy(fontSize = it)
+                    } ?: MaterialTheme.typography.bodyLarge,
+                    fontFamily = itemStyle.fontFamily ?: FontFamily.Default,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = itemStyle.titleColor
+                        ?: MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "${track.artist} • ${track.album}",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = itemStyle.subSize?.let {
+                        MaterialTheme.typography.bodySmall.copy(fontSize = it)
+                    } ?: MaterialTheme.typography.bodySmall,
+                    fontFamily = itemStyle.fontFamily ?: FontFamily.Default,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = itemStyle.subColor
+                        ?: MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -439,6 +486,7 @@ fun MusicBrowserList(
     coverCache: Map<Long, String> = emptyMap(),
     onTrackClick: (Track, List<Track>) -> Unit = { _, _ -> },
     onTrackLongClick: (Track) -> Unit = {},
+    itemStyle: ItemStyle = ItemStyle(),
 ) {
     val state = LocalBrowserState.current
 
@@ -495,7 +543,8 @@ fun MusicBrowserList(
             coverCache = coverCache,
             state = listState,
             onTrackClick = { track -> onTrackClick(track, filteredTracks) },
-            onTrackLongClick = onTrackLongClick
+            onTrackLongClick = onTrackLongClick,
+            itemStyle = itemStyle
         )
         MusicCategory.ARTIST -> ArtistTab(
             artistGroups = artistGroups,
@@ -506,7 +555,8 @@ fun MusicBrowserList(
                 val contextTracks = artistGroups[artistName] ?: listOf(track)
                 onTrackClick(track, contextTracks)
             },
-            onTrackLongClick = onTrackLongClick
+            onTrackLongClick = onTrackLongClick,
+            itemStyle = itemStyle
         )
         MusicCategory.ALBUM -> AlbumTab(
             albumGroups = albumGroups,
@@ -517,7 +567,8 @@ fun MusicBrowserList(
                 val contextTracks = albumGroups[albumName] ?: listOf(track)
                 onTrackClick(track, contextTracks)
             },
-            onTrackLongClick = onTrackLongClick
+            onTrackLongClick = onTrackLongClick,
+            itemStyle = itemStyle
         )
     }
 }

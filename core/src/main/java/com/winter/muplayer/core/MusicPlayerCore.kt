@@ -276,6 +276,29 @@ class MusicPlayerCore private constructor(context: Context) {
     }
 
     /**
+     * 立即播放：将曲目插入播放队列顶部并立即播放。
+     *
+     * - 队列为空 → 直接作为单首歌曲播放
+     * - 队列非空 → 插入到列表顶部（索引 0）并立即播放
+     */
+    fun playTrackTop(track: Track) {
+        AppLogger.i("Player", "playTrackTop: ${track.title}")
+        if (isReleased) return
+        scope.launch {
+            engineMutex.withLock {
+                progressTracker.stop()
+                queueManager.enqueueTop(track)
+                queueManager.setCurrentIndex(0)
+                val currentTrack = queueManager.getCurrentTrack()
+                if (currentTrack != null) {
+                    prepareTrackInternal(currentTrack)
+                    engine.play()
+                }
+            }
+        }
+    }
+
+    /**
      * 智能播放：播放一首歌，并根据队列状态决定是否批量添加。
      *
      * - 队列为空 → 将 [batch] 中的所有歌曲加入队列末尾，播放 [track]

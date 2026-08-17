@@ -173,11 +173,13 @@ private fun SlotRendererBody(
                             }
                             val animWrapper = parseAnimationWrapper(compCss)
                             val compWeight = compCss["weight"]?.toFloatOrNull()
+                            // 容器组件（带 children 的背景层，如 fp-backdrop）：未显式设 weight 时默认铺满父容器
+                            val isContainer = entry.extra["children"] is Map<*, *>
 
-                            val weightMod = if (compWeight != null && compWeight > 0f) {
-                                Modifier.weight(compWeight).then(mod)
-                            } else {
-                                mod
+                            val weightMod = when {
+                                compWeight != null && compWeight > 0f -> Modifier.weight(compWeight).then(mod)
+                                isContainer -> Modifier.weight(1f).then(mod)
+                                else -> mod
                             }
 
                             CompositionLocalProvider(
@@ -191,8 +193,10 @@ private fun SlotRendererBody(
                                         @Suppress("UNCHECKED_CAST")
                                         val childSlots = children as Map<String, List<ComponentEntry>>
                                         Box(modifier = mod) {
-                                            Column(Modifier.fillMaxSize()) {
-                                                ComponentRegistry.render(entry.id, Modifier)
+                                            // 背景层：容器组件自身 fillMaxSize 铺满（如 fp-backdrop 的模糊封面背景）
+                                            ComponentRegistry.render(entry.id, Modifier.fillMaxSize())
+                                            // 前景层：children 子 slots fillMaxSize 叠在背景之上
+                                            Box(Modifier.fillMaxSize()) {
                                                 SlotRenderer(
                                                     slots = childSlots,
                                                     context = context,
@@ -257,11 +261,13 @@ private fun SlotRendererBody(
                             }
                             val animWrapper = parseAnimationWrapper(compCss)
                             val compWeight = compCss["weight"]?.toFloatOrNull()
+                            // 容器组件（带 children 的背景层，如 fp-backdrop）：未显式设 weight 时默认铺满父容器
+                            val isContainer = entry.extra["children"] is Map<*, *>
 
-                            val weightMod = if (compWeight != null && compWeight > 0f) {
-                                Modifier.weight(compWeight).then(mod)
-                            } else {
-                                mod
+                            val weightMod = when {
+                                compWeight != null && compWeight > 0f -> Modifier.weight(compWeight).then(mod)
+                                isContainer -> Modifier.weight(1f).then(mod)
+                                else -> mod
                             }
 
                             CompositionLocalProvider(
@@ -275,8 +281,10 @@ private fun SlotRendererBody(
                                         @Suppress("UNCHECKED_CAST")
                                         val childSlots = children as Map<String, List<ComponentEntry>>
                                         Box(modifier = mod) {
-                                            Column(Modifier.fillMaxSize()) {
-                                                ComponentRegistry.render(entry.id, Modifier)
+                                            // 背景层：容器组件自身 fillMaxSize 铺满（如 fp-backdrop 的模糊封面背景）
+                                            ComponentRegistry.render(entry.id, Modifier.fillMaxSize())
+                                            // 前景层：children 子 slots fillMaxSize 叠在背景之上
+                                            Box(Modifier.fillMaxSize()) {
                                                 SlotRenderer(
                                                     slots = childSlots,
                                                     context = context,
@@ -415,4 +423,5 @@ private fun SlotContext.copy(slotName: String, slotArrange: String? = this.slotA
     onPlayModeChange = onPlayModeChange,
     playMode = playMode,
     adaptiveTint = adaptiveTint,
+    blurBackground = blurBackground,
 )

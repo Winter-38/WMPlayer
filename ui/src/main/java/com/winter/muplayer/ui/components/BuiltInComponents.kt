@@ -11,6 +11,9 @@ import com.winter.muplayer.config.isSlotVertical
 import com.winter.muplayer.config.parseCssColor
 import com.winter.muplayer.config.parseCssDp
 import androidx.compose.foundation.background
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -24,35 +27,44 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.*
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
+import coil.size.Size
 import com.winter.muplayer.ui.browser.AlbumThumb
+import com.winter.muplayer.ui.browser.getAlbumArtUri
+import com.winter.muplayer.ui.browser.ItemStyle
 import com.winter.muplayer.ui.browser.LocalBrowserState
 import com.winter.muplayer.ui.browser.MusicBrowserList
 import com.winter.muplayer.ui.browser.MusicCategory
 import com.winter.muplayer.ui.browser.displayName
 import android.os.Build
+import android.graphics.Bitmap
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.winter.muplayer.ui.R
 import com.winter.muplayer.ui.components.ControlButton
@@ -62,6 +74,8 @@ import com.winter.muplayer.ui.components.formatDuration
 import com.winter.muplayer.model.PlayMode
 import com.winter.muplayer.model.PlayerState
 import com.winter.muplayer.model.Track
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 注册所有内置组件到 ComponentRegistry。
@@ -94,6 +108,12 @@ fun registerBuiltInComponents() {
         "track-info" to { TrackInfo() },
         "progress-bar" to { ProgressBar() },
         "controls-row" to { ControlsRow() },
+        // 全屏播放器细分组件
+        "fp-backdrop" to { FpBackdrop() },
+        "fp-cover" to { FpCover() },
+        "fp-track-title" to { FpTrackTitle() },
+        "fp-track-subtitle" to { FpTrackSubtitle() },
+        "fp-progress" to { FpProgress() },
     )
 }
 
@@ -605,19 +625,43 @@ private fun SlotContext.Sort() {
 
 // ==================== playlist ====================
 
+/** 从 #playlist 组件 CSS 解析条目样式（item-* 属性），未设置的项保持 null（使用主题默认） */
+private fun parseItemStyle(css: Map<String, String>): ItemStyle = ItemStyle(
+    background = css["item-bg"]?.let { parseCssColor(it) }
+        ?: css["item-background"]?.let { parseCssColor(it) },
+    radius = css["item-radius"]?.let { parseCssDp(it) },
+    titleColor = css["item-color"]?.let { parseCssColor(it) }
+        ?: css["item-text-color"]?.let { parseCssColor(it) },
+    titleSize = css["item-font-size"]?.let { parseCssDp(it) }
+        ?.takeIf { it.value > 0f }?.value?.sp,
+    subColor = css["item-sub-color"]?.let { parseCssColor(it) },
+    subSize = css["item-sub-size"]?.let { parseCssDp(it) }
+        ?.takeIf { it.value > 0f }?.value?.sp,
+    fontFamily = css["item-font-family"]?.let { parseFontFamily(it) },
+)
+
+/** 解析字体族：serif / monospace / cursive，sans-serif 或无效值返回 null（主题默认） */
+private fun parseFontFamily(value: String): FontFamily? = when (value.trim().lowercase()) {
+    "serif" -> FontFamily.Serif
+    "monospace" -> FontFamily.Monospace
+    "cursive" -> FontFamily.Cursive
+    else -> null
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SlotContext.Playlist() {
     var selectedTrack by remember { mutableStateOf<Track?>(null) }
-    var showPlaylistPicker by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     val appContext = LocalContext.current
     val browserState = LocalBrowserState.current
+    val css = LocalComponentCss.current
+    val itemStyle = remember(css) { parseItemStyle(css) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         MusicBrowserList(
             coverCache = coverCache,
+            itemStyle = itemStyle,
             onTrackClick = { track, contextTracks ->
                 onPlayTrackSmart(track, contextTracks)
             },
@@ -654,10 +698,11 @@ private fun SlotContext.Playlist() {
                 )
                 HorizontalDivider()
 
-                // 添加到播放列表
+                // 添加到播放列表（无队列→直接播放单曲；有队列→插入列表顶部立即播放）
                 TextButton(
                     onClick = {
-                        showPlaylistPicker = true
+                        musicPlayerCore.playTrackTop(track)
+                        selectedTrack = null
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 ) {
@@ -693,55 +738,6 @@ private fun SlotContext.Playlist() {
                         stringResource(R.string.delete_song),
                         modifier = Modifier.weight(1f)
                     )
-                }
-            }
-        }
-    }
-
-    // ── 播放列选选择器 ──
-    if (showPlaylistPicker && selectedTrack != null) {
-        val pickerSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { showPlaylistPicker = false },
-            sheetState = pickerSheetState,
-        ) {
-            Column(modifier = Modifier.padding(bottom = 32.dp)) {
-                Text(
-                    text = stringResource(R.string.add_to_playlist),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                )
-                HorizontalDivider()
-
-                val playlists by musicPlayerCore.playlistManager.playlists.collectAsState()
-                if (playlists.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.no_playlists),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(24.dp)
-                    )
-                } else {
-                    playlists.forEach { playlist ->
-                        TextButton(
-                            onClick = {
-                                scope.launch {
-                                    musicPlayerCore.playlistManager.addTrack(playlist.id, selectedTrack!!.id)
-                                }
-                                showPlaylistPicker = false
-                                selectedTrack = null
-                            },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_library_music),
-                                contentDescription = null,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(playlist.name, modifier = Modifier.weight(1f))
-                        }
-                    }
                 }
             }
         }
@@ -951,6 +947,212 @@ private fun SlotContext.PlayBar() {
 // ══════════════════════════════════════════════
 // 全屏播放器组件
 // ══════════════════════════════════════════════
+
+// ==================== 封面模糊背景层（容器组件） ====================
+// children 中声明的子 slots 由 SlotRenderer 以 Box 叠层渲染在背景之上。
+
+@Composable
+private fun SlotContext.FpBackdrop() {
+    val currentTrack = playerState.currentTrack
+    val context = LocalContext.current
+    var coverBitmap by remember(currentTrack?.id, coverCache) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(currentTrack?.id, coverCache) {
+        if (blurBackground && currentTrack != null) {
+            val uri = getAlbumArtUri(currentTrack, coverCache)
+            if (uri != null) {
+                try {
+                    val loader = coil.ImageLoader(context)
+                    val result = loader.execute(
+                        ImageRequest.Builder(context)
+                            .data(uri)
+                            .size(100, 100)
+                            .crossfade(false)
+                            .build()
+                    )
+                    val drawable = result.drawable
+                    coverBitmap = (drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                } catch (_: Exception) {
+                    coverBitmap = null
+                }
+            } else {
+                coverBitmap = null
+            }
+        } else {
+            coverBitmap = null
+        }
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        if (coverBitmap != null) {
+            Crossfade(
+                targetState = coverBitmap,
+                animationSpec = tween(durationMillis = 400),
+                label = "fpBackdrop"
+            ) { bmp ->
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(bmp)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(radius = 48.dp)
+                )
+            }
+        }
+    }
+}
+
+// ==================== 主封面 ====================
+
+@Composable
+private fun SlotContext.FpCover() {
+    val currentTrack = playerState.currentTrack
+    val context = LocalContext.current
+    // 切歌时保持旧封面直到新封面加载完成（与全屏面板原逻辑一致）
+    var coverState by remember { mutableStateOf<Pair<Long, Any?>?>(null) }
+    var lastCoverUri by remember { mutableStateOf<Any?>(null) }
+    LaunchedEffect(currentTrack?.id, coverCache) {
+        val track = currentTrack
+        if (track == null) {
+            coverState = null
+            lastCoverUri = null
+            return@LaunchedEffect
+        }
+        val uri: Any? = getAlbumArtUri(track, coverCache)
+        if (coverState?.first == track.id && lastCoverUri == uri) return@LaunchedEffect
+        val loaded = if (uri != null) {
+            withContext(Dispatchers.IO) {
+                try {
+                    context.imageLoader.execute(
+                        ImageRequest.Builder(context)
+                            .data(uri)
+                            .size(Size.ORIGINAL)
+                            .build()
+                    ).drawable != null
+                } catch (_: Exception) {
+                    false
+                }
+            }
+        } else false
+        lastCoverUri = uri
+        coverState = track.id to (if (loaded) uri else null)
+    }
+    val displayedCover: Any? = coverState?.second
+    val albumArtCorner = 24.dp
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(albumArtCorner))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .shadow(16.dp, RoundedCornerShape(albumArtCorner)),
+        contentAlignment = Alignment.Center
+    ) {
+        Crossfade(
+            targetState = displayedCover,
+            animationSpec = tween(durationMillis = 400),
+            label = "fpCover"
+        ) { cover ->
+            if (cover != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(cover)
+                        .size(Size.ORIGINAL)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    painterResource(com.winter.muplayer.ui.R.drawable.ic_music_off),
+                    contentDescription = null,
+                    modifier = Modifier.size(100.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                )
+            }
+        }
+    }
+}
+
+// ==================== 歌曲标题 ====================
+
+@Composable
+private fun SlotContext.FpTrackTitle() {
+    val currentTrack = playerState.currentTrack
+    val tint = if (adaptiveTint != Color.Unspecified) adaptiveTint else MaterialTheme.colorScheme.onSurface
+    Text(
+        text = currentTrack?.title ?: stringResource(com.winter.muplayer.ui.R.string.no_track_selected),
+        style = MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        color = tint,
+    )
+}
+
+// ==================== 歌曲艺人 + 专辑 ====================
+
+@Composable
+private fun SlotContext.FpTrackSubtitle() {
+    val currentTrack = playerState.currentTrack
+    val tint = if (adaptiveTint != Color.Unspecified) adaptiveTint else MaterialTheme.colorScheme.onSurface
+    if (currentTrack != null) {
+        Text(
+            text = "${currentTrack.artist} • ${currentTrack.album}",
+            style = MaterialTheme.typography.bodyLarge,
+            color = tint.copy(alpha = 0.7f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+// ==================== 进度条 + 时间显示（合并） ====================
+
+@Composable
+private fun SlotContext.FpProgress() {
+    val progressData = LocalProgress.current
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Slider(
+            value = if (progressData.duration > 0)
+                progressData.progress.toFloat() / progressData.duration.toFloat()
+            else 0f,
+            onValueChange = { fraction ->
+                onSeek((fraction * progressData.duration).toLong())
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+            )
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = formatDuration(progressData.progress),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = formatDuration(progressData.duration),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
 
 @Composable
 private fun SlotContext.TrackInfo() {

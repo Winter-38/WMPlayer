@@ -102,6 +102,27 @@ class PlayQueueManager {
     }
 
     /**
+     * 将一首歌插入到队列顶部（队首，索引 0）。
+     * 队列为空时自动成为当前曲目。
+     *
+     * @return 新歌在队列中的索引位置（总是 0）
+     */
+    suspend fun enqueueTop(track: Track): Int = mutex.withLock {
+        val entry = QueueEntry(uid = uidCounter++, track = track)
+        val list = _queue.value
+        if (list.isEmpty()) {
+            _queue.update { listOf(entry) }
+            _currentIndex.value = 0
+            return@withLock 0
+        }
+        _queue.update { listOf(entry) + list }
+        if (playMode == PlayMode.SHUFFLE) {
+            insertIntoShuffleIndices(0)
+        }
+        return@withLock 0
+    }
+
+    /**
      * 将一首歌插入到当前播放位置之后（"下一首播放"）。
      * 当前正在播放的歌曲不受影响，播完它后自动切到新歌。
      *

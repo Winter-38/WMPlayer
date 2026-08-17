@@ -215,19 +215,32 @@ class StyleConfigLoader(private val context: Context) {
                 }
             }
 
-            // ── 主界面 slots（仅认 "slots" 数组，不依赖 object key 顺序）──
-            val slotsArray = root.optJSONArray("slots")
-            if (slotsArray != null) {
-                for (i in 0 until slotsArray.length()) {
-                    val element = slotsArray.getJSONObject(i)
-                    val keys = element.keys()
-                    if (!keys.hasNext()) continue
-                    val slotName = keys.next()
-                    val entries = LayoutParser.parseSlotValue(element.get(slotName))
-                    if (entries.isNotEmpty()) {
-                        slots[slotName] = entries
+            // ── 主界面 slots（支持数组（旧）与对象（新）两种形式）──
+            // 旧：{ "slots": [{ "app-top": [...] }] }
+            // 新：{ "slots": { "app-top": [...], "app-center": [...] } }
+            when (val slotsValue = root.opt("slots")) {
+                is JSONArray -> {
+                    for (i in 0 until slotsValue.length()) {
+                        val element = slotsValue.getJSONObject(i)
+                        val keys = element.keys()
+                        if (!keys.hasNext()) continue
+                        val slotName = keys.next()
+                        val entries = LayoutParser.parseSlotValue(element.get(slotName))
+                        if (entries.isNotEmpty()) {
+                            slots[slotName] = entries
+                        }
                     }
                 }
+                is JSONObject -> {
+                    for (key in slotsValue.keys()) {
+                        val entries = LayoutParser.parseSlotValue(slotsValue.get(key))
+                        if (entries.isNotEmpty()) {
+                            slots[key] = entries
+                        }
+                    }
+                }
+                null -> { /* 未配置 slots → 使用默认值 */ }
+                else -> throw IllegalArgumentException("'slots' must be a JSON array or object")
             }
 
             return ComponentLayout(

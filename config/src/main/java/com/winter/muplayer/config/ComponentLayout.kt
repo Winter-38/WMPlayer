@@ -51,12 +51,28 @@ data class ComponentLayout(
             "app-bottom" to listOf(ComponentEntry("playbar")),
         )
 
-        /** 全屏播放器默认 slot 定义 —— 三个子区域竖向堆叠 */
+        /**
+         * 全屏播放器默认 slot 定义 —— 由细分组件组装：
+         * - `fp-backdrop` 作背景层容器（children 前景层叠加其上，封面模糊背景）
+         * - 前景层：标题与歌手+专辑置于左上角（content 顶部、Text 默认左对齐），
+         *   随后依次为 主封面 / 进度条 / 播放操控按钮
+         */
         val defaultFullPlayerSlots: Map<String, List<ComponentEntry>> = mapOf(
             "main" to listOf(
-                ComponentEntry("track-info"),
-                ComponentEntry("progress-bar"),
-                ComponentEntry("controls-row"),
+                ComponentEntry(
+                    id = "fp-backdrop",
+                    extra = mapOf(
+                        "children" to mapOf(
+                            "content" to listOf(
+                                ComponentEntry("fp-track-title"),
+                                ComponentEntry("fp-track-subtitle"),
+                                ComponentEntry("fp-cover"),
+                                ComponentEntry("fp-progress"),
+                                ComponentEntry("controls-row"),
+                            ),
+                        ),
+                    ),
+                ),
             ),
         )
     }

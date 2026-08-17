@@ -280,8 +280,61 @@ private fun parseDp(value: String?): androidx.compose.ui.unit.Dp? {
     return num?.let { it.dp }
 }
 
-fun parseCssColor(hex: String): Color? {
-    val h = hex.trimStart('#')
+/** 常用 CSS 颜色名 → ARGB 值 */
+private val NAMED_COLORS: Map<String, Long> = mapOf(
+    "red" to 0xFFFF0000, "green" to 0xFF008000, "blue" to 0xFF0000FF,
+    "white" to 0xFFFFFFFF, "black" to 0xFF000000,
+    "gray" to 0xFF808080, "grey" to 0xFF808080,
+    "yellow" to 0xFFFFFF00, "orange" to 0xFFFFA500, "purple" to 0xFF800080,
+    "pink" to 0xFFFFC0CB, "cyan" to 0xFF00FFFF, "magenta" to 0xFFFF00FF,
+    "brown" to 0xFFA52A2A, "navy" to 0xFF000080, "teal" to 0xFF008080,
+    "lime" to 0xFF00FF00, "maroon" to 0xFF800000, "olive" to 0xFF808000,
+    "silver" to 0xFFC0C0C0, "gold" to 0xFFFFD700, "indigo" to 0xFF4B0082,
+    "violet" to 0xFFEE82EE, "salmon" to 0xFFFA8072, "coral" to 0xFFFF7F50,
+    "tomato" to 0xFFFF6347, "skyblue" to 0xFF87CEEB,
+    "lightgray" to 0xFFD3D3D3, "darkgray" to 0xFFA9A9A9,
+    "transparent" to 0x00000000,
+)
+
+/**
+ * 解析 CSS 颜色值。
+ * 支持：
+ * - `#RGB` / `#RRGGBB` / `#AARRGGBB`（hex）
+ * - `rgb(r, g, b)`（0-255 或百分比）
+ * - `rgba(r, g, b, a)`（a 为 0-1 或百分比）
+ * - 颜色名（red / white / black / blue 等）
+ */
+fun parseCssColor(value: String): Color? {
+    val trimmed = value.trim()
+
+    // 命名颜色（大小写不敏感）
+    NAMED_COLORS[trimmed.lowercase()]?.let { return Color(it) }
+
+    val h = trimmed.trimStart('#')
+
+    // 函数格式：rgb(...) / rgba(...)
+    if (h.startsWith("rgb(") || h.startsWith("rgba(")) {
+        val hasAlpha = h.startsWith("rgba(")
+        val inner = h.substringAfter('(').substringBeforeLast(')').trim()
+        if (inner.isEmpty()) return null
+        val parts = inner.split(',').map { it.trim() }
+        if (parts.size != if (hasAlpha) 4 else 3) return null
+
+        fun channel(raw: String): Float? {
+            val v = raw.removeSuffix("%").trim().toFloatOrNull() ?: return null
+            return if (raw.trim().endsWith("%")) (v / 100f) * 255f else v
+        }
+        val r = channel(parts[0]) ?: return null
+        val g = channel(parts[1]) ?: return null
+        val b = channel(parts[2]) ?: return null
+        val a = if (hasAlpha) {
+            val rawA = parts[3].trim()
+            val av = rawA.removeSuffix("%").trim().toFloatOrNull() ?: return null
+            if (rawA.endsWith("%")) av / 100f else av
+        } else 1f
+        return Color(r / 255f, g / 255f, b / 255f, a.coerceIn(0f, 1f))
+    }
+
     if (h.length != 6 && h.length != 8) return null
     val colorLong = h.toLongOrNull(16) ?: return null
     return if (h.length == 8) Color(colorLong)

@@ -17,6 +17,9 @@
 
 # ==================== 核心工具类 ====================
 -keep class com.winter.muplayer.core.ProgressTracker { *; }
+# ProgressData 是 ProgressTracker 的嵌套 data class，被 config/ui 模块跨模块引用（progressState API）。
+# 必须保留全限定名，否则 core 自身 R8 会将其混淆（如 -> a.e0），下游引用原始名导致 missing class / 运行时 NoClassDefFoundError
+-keep class com.winter.muplayer.core.ProgressTracker$ProgressData { *; }
 -keep class com.winter.muplayer.core.PlayQueueManager { *; }
 # 保留 QueueEntry 数据类（PlayerQueueManager 的内部数据类，被 base-ui 跨模块引用）
 -keep class com.winter.muplayer.core.QueueEntry { *; }

@@ -59,9 +59,23 @@ config/
 
 ## 2. JSON 配置详解
 
-### 2.1 slots 数组
+### 2.1 slots 声明
 
-slot 的排列顺序由 `"slots"` 数组的索引决定，**不依赖 JSON object key 顺序**。这是唯一被接受的 slot 声明方式。
+支持两种形式：
+
+**对象形式（新）**：界面的内容为对象 `{}`，里面不同的名字对应不同 slot：
+
+```json
+{
+  "slots": {
+    "app-top": ["app-name", "search-button", "setting-button"],
+    "app-center": ["tab-bar", "sort", "playlist"],
+    "app-bottom": ["playbar"]
+  }
+}
+```
+
+**数组形式（旧，仍兼容）**：顺序由 `"slots"` 数组的索引决定，不依赖 object key 顺序：
 
 ```json
 {
@@ -73,7 +87,7 @@ slot 的排列顺序由 `"slots"` 数组的索引决定，**不依赖 JSON objec
 }
 ```
 
-每个数组元素是一个单 key 对象，key 为 slot 名，value 为组件数组。slot 名的渲染顺序 = 数组索引。
+每个数组元素是一个单 key 对象，key 为 slot 名，value 为组件数组。slot 名的渲染顺序 = 数组索引（对象形式按解析顺序）。
 
 ### 2.2 组件引用
 
@@ -147,9 +161,9 @@ key 有 `#` 前缀 → 自定义组件；无 `#` 前缀 → 内置组件。
 
 ```json
 {
-  "slots": [
-    { "sidebar": ["#my-button", "#custom-header"] }
-  ],
+  "slots": {
+    "sidebar": ["#my-button", "#custom-header"]
+  },
   "#my-button": {
     "icon": "ic_search",
     "onClick": "toggleSearch"
@@ -191,6 +205,33 @@ key 有 `#` 前缀 → 自定义组件；无 `#` 前缀 → 内置组件。
 
 children 的 value 与顶层 `slots` 数组元素格式一致——每个 key 对应一个子 slot，value 为组件数组。
 
+**命名子 slot（推荐）**：在组件数组内嵌 `{ "name": ..., "children": [...] }`：
+
+```json
+{
+  "slot1": [
+    "normal-compose1",
+    { "name": "children-slot", "children": ["child-compose1", "child-compose2"] },
+    "normal-compose2"
+  ]
+}
+```
+
+`name` 是该子 slot 的名字（CSS 用 `.name` 定位），`children` 为组件数组。
+
+**slot 型组件**：若 slot / 容器名与已知 slot 型组件 id 一致（如 `fp-backdrop`），解析为 slot 型组件——自身渲染为背景层（fillMaxSize），children 作为前景层叠加：
+
+```json
+{
+  "main": {
+    "fp-backdrop": ["fp-track-title", "fp-cover"]
+  }
+}
+```
+
+- 数组形式的 children 自动包装为匿名子 slot（`.content`）
+- 对象形式的 children 作为子 slot 字典（每个 key 一个子 slot）
+
 也可以使用隐式子 slot（所有 value 都是数组的 JSON 对象）：
 
 ```json
@@ -201,17 +242,33 @@ children 的 value 与顶层 `slots` 数组元素格式一致——每个 key �
 
 ### 2.6 全屏播放器 slot
 
-全屏播放器的组件用独立的 `main` key 定义：
+全屏播放器的组件用独立的 `main` key 定义。默认布局由细分组件组装：`fp-backdrop` 作为背景层容器（封面模糊背景），通过 `children` 将前景内容叠加其上。`main` 的值是对象，不同名字对应不同 slot；`fp-backdrop` 是 slot 型组件：
 
 ```json
 {
-  "slots": [
-    { "app-top": ["app-name"] },
-    { "app-bottom": ["playbar"] }
-  ],
-  "main": ["track-info", "progress-bar", "controls-row"]
+  "slots": {
+    "app-top": ["app-name"],
+    "app-bottom": ["playbar"]
+  },
+  "main": {
+    "fp-backdrop": [
+      "fp-track-title",
+      "fp-track-subtitle",
+      { "name": "main-cover", "children": ["fp-cover"] },
+      "fp-progress",
+      "controls-row"
+    ]
+  }
 }
 ```
+
+前景层布局：`fp-track-title`（标题）与 `fp-track-subtitle`（歌手 + 专辑）位于内容区**顶部、左对齐（左上角）**；随后依次为 `fp-cover`（主封面）、`fp-progress`（进度条）、`controls-row`（播放操控按钮组）。
+
+**布局说明：**
+- 带 `children` 的组件是「容器组件」：自身渲染为背景层（`fillMaxSize` 铺满），`children` 中的子 slot 作为前景层叠加在背景之上
+- 容器组件未显式设置 `weight` 时默认铺满父容器（如 `fp-backdrop` 铺满整个面板）
+- 标题/副标题默认左对齐显示在内容区顶部；如需调整位置（居中、靠右）或让封面居中，可通过 CSS `align-self` / `weight` / `size` 定制，见下方示例
+- 未配置 `main` 时使用内置默认布局（与上例相同的细分组件组装）
 
 全屏播放器的样式由 `.main` CSS 选择器控制。
 
@@ -224,9 +281,9 @@ children 的 value 与顶层 `slots` 数组元素格式一致——每个 key �
 ```json
 {
   "include": ["style.json"],
-  "slots": [
-    { "app-top": ["app-name", "search-button"] }
-  ]
+  "slots": {
+    "app-top": ["app-name", "search-button"]
+  }
 }
 ```
 
@@ -234,9 +291,9 @@ children 的 value 与顶层 `slots` 数组元素格式一致——每个 key �
 
 ```json
 {
-  "slots": [
-    { "app-center": ["tab-bar", "playlist"] }
-  ],
+  "slots": {
+    "app-center": ["tab-bar", "playlist"]
+  },
   "#my-button": { "icon": "ic_custom" }
 }
 ```
@@ -687,6 +744,58 @@ bind 未命中时显示 `(bind:<键>)` 便于排查。
 
 全屏播放器的组件通过 JSON 的 `main` key 定义，CSS 样式由 `.main` 控制。
 
+#### fp-backdrop
+
+全屏背景层容器。渲染当前曲目封面并做模糊处理铺满全屏（封面模糊背景）；设置中关闭模糊背景时退化为纯色背景。作为容器组件使用时，将前景组件放入其 `children` 即可叠加在背景之上。
+
+```json
+{
+  "fp-backdrop": {
+    "children": {
+      "content": ["fp-cover", "fp-track-title", "controls-row"]
+    }
+  }
+}
+```
+
+#### fp-cover
+
+全屏主封面。大尺寸方形封面（圆角 + 阴影），切歌时保持旧封面直到新封面加载完成，加载完成后 Crossfade 平滑过渡；无封面时显示占位图标。
+
+```json
+"fp-cover"
+```
+
+#### fp-track-title
+
+全屏标题。显示当前曲目标题（粗体大字号），颜色跟随自适应色调（模糊背景开启时根据封面亮度自动调整）。
+
+```json
+"fp-track-title"
+```
+
+#### fp-track-subtitle
+
+全屏歌手 + 专辑。显示「歌手 • 专辑」，颜色为自适应色调的半透明版本。
+
+```json
+"fp-track-subtitle"
+```
+
+#### fp-progress
+
+全屏进度条。滑块 + 当前时间 + 总时长，拖动滑块即时 seek。
+
+```json
+"fp-progress"
+```
+
+**CSS 支持：** `color`（滑块主色）
+
+---
+
+以下为聚合/自适应变体组件（旧配置仍兼容，可继续使用）：
+
 #### track-info
 
 显示当前歌曲信息。支持自适应宽度响应式渲染：
@@ -716,15 +825,23 @@ bind 未命中时显示 `(bind:<键>)` 便于排查。
 
 ```json
 {
-  // 通用布局
-  "slots": [
-    { "top-bar": ["app-name", "search-button", "setting-button"] },
-    { "sidebar": ["tab-bar", "sort"] },
-    { "main-content": ["playlist"] },
-    { "bottom-bar": ["playbar"] }
-  ],
-  // 全屏播放器
-  "main": ["track-info", "progress-bar", "controls-row"],
+  // 通用布局（对象形式：不同名字对应不同 slot）
+  "slots": {
+    "top-bar": ["app-name", "search-button", "setting-button"],
+    "sidebar": ["tab-bar", "sort"],
+    "main-content": ["playlist"],
+    "bottom-bar": ["playbar"]
+  },
+  // 全屏播放器（fp-backdrop 为 slot 型组件：背景层 + 前景）
+  "main": {
+    "fp-backdrop": [
+      "fp-track-title",
+      "fp-track-subtitle",
+      { "name": "main-cover", "children": ["fp-cover"] },
+      "fp-progress",
+      "controls-row"
+    ]
+  },
   // 自定义组件
   "#favorite-btn": {
     "icon": "ic_favorite",
@@ -794,3 +911,24 @@ bind 未命中时显示 `(bind:<键>)` 便于排查。
 /* 播放列表背景 */
 #playlist { background-color: #1a1a2e; }
 ```
+
+---
+
+## 6. 开发者调试
+
+### 显示 slot / 组件边界
+
+`ui/.../MusicUIActivity.kt` 中 `MusicPlayerApp` 内的 `isDebug` 开关设为 `true` 时，
+SlotRenderer 会绘制调试信息：
+
+- **slot 级**：3dp 彩色边框（红/绿/蓝/紫/黄轮询）+ 6% 透明度背景色块
+- **组件级**：12% 透明度色块覆盖在组件上
+- 嵌套子 slot（`.content` / 命名子 slot 等）同样生效
+
+用于排查 slot 之间的边界与布局问题。调试完成后请将 `isDebug` 改回 `false`。
+
+### 配置热重载
+
+修改 `main.json` / `style.css` 后无需重启应用 —— 在设置页点击「重新读取配置」
+即可立即从磁盘重新解析并应用（主界面与全屏播放器都会更新）。解析失败时会提示
+错误信息并回退到默认布局。

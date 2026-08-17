@@ -98,6 +98,8 @@
     <string name="auto_scan">启动时自动扫描</string>
     <string name="auto_scan_subtitle">打开应用后自动扫描本地音乐文件</string>
     <string name="rescan_music">重新扫描音乐库</string>
+    <string name="reload_config">重新读取配置</string>
+    <string name="config_reloaded">配置已重新读取</string>
 
     <!-- 存储 -->
     <string name="clear_cache">清除专辑封面缓存</string>
