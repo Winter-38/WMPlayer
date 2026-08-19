@@ -28,7 +28,7 @@ class FullPlayerSlotsBinaryCacheTest {
             customComponents = emptyMap(),
             fullPlayerSlots = ComponentLayout.defaultFullPlayerSlots,
         )
-        val css = CssRuleTable(rules = mapOf(".main" to mapOf("arrange" to "column")))
+        val css = CssRuleTable(rules = mapOf(".full-player" to mapOf("arrange" to "column")))
 
         val dir = tmp.newFolder("cache")
         BinaryCache.write(dir, layout, css)
@@ -43,13 +43,13 @@ class FullPlayerSlotsBinaryCacheTest {
         assertEquals(css, restoredCss)
 
         // 明确断言背景层容器 + 前景组件齐全（标题/副标题位于顶部 = 左上角）
-        val main = restoredLayout.fullPlayerSlots.getValue("main")
+        val main = restoredLayout.fullPlayerSlots.getValue("full-player")
         assertEquals("fp-backdrop", main[0].id)
         @Suppress("UNCHECKED_CAST")
         val children = main[0].extra["children"] as Map<String, List<ComponentEntry>>
         assertEquals(
-            listOf("fp-track-title", "fp-track-subtitle", "fp-cover", "fp-progress", "controls-row"),
-            children.getValue("content").map { it.id },
+            listOf("fp-title", "fp-subtitle", "fp-cover", "fp-progress", "controls-row"),
+            children.getValue("fp-backdrop").map { it.id },
         )
     }
 
@@ -57,7 +57,7 @@ class FullPlayerSlotsBinaryCacheTest {
     fun 平铺旧格式fullPlayerSlots_序列化往返一致() {
         val layout = ComponentLayout(
             fullPlayerSlots = mapOf(
-                "main" to listOf(
+                "full-player" to listOf(
                     ComponentEntry("track-info"),
                     ComponentEntry("progress-bar"),
                     ComponentEntry("controls-row"),

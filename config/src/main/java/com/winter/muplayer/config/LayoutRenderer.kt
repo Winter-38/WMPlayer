@@ -33,9 +33,12 @@ import androidx.compose.ui.unit.sp
  * 插槽渲染器 —— 每个 slot 读 CSS 决定容器类型和布局。
  * 支持 CSS 属性：weight / arrange / gap
  *
- * 外层容器方向由 [.layout] 的 `arrange` 控制：
- *   .layout { arrange: column } — slot 垂直堆叠（默认）
- *   .layout { arrange: row }    — slot 水平排列
+ * 外层容器方向由 [.main] 的 `arrange` 控制：
+ *   .main { arrange: column } — slot 垂直堆叠（默认）
+ *   .main { arrange: row }    — slot 水平排列
+ *
+ * 全屏播放器等独立渲染树可传 [outerArrange] 覆盖外层方向，
+ * 不再读取 `.main`，与主界面互不影响。
  */
 @Composable
 fun SlotRenderer(
@@ -44,14 +47,20 @@ fun SlotRenderer(
     css: CssRuleTable = LocalCssRules.current,
     customComponents: Map<String, Map<String, Any?>> = emptyMap(),
     debug: Boolean = false,
+    /**
+     * 显式外层排列方向（arrange 值）。非 null 时替代 `.main` 决定本层及后代递归的
+     * 外层方向，用于全屏播放器等独立于主界面的渲染树；null 时保持默认从 `.main` 读取。
+     * 容器组件递归渲染 children 时，若容器自身 CSS 有 `arrange` 则优先于本值。
+     */
+    outerArrange: String? = null,
 ) {
     CompositionLocalProvider(LocalCssRules provides css) {
         // 进度数据独立收集：仅订阅 LocalProgress 的组件（text bind position/duration、progress-slider）
         // 随进度高频重组，其余组件因参数稳定而跳过，避免整个 UI 每 250ms 全量重组。
         val progress by context.musicPlayerCore.progressState.collectAsState()
         CompositionLocalProvider(LocalProgress provides progress) {
-            val layoutCss = css.rules[".layout"] ?: emptyMap()
-            val layoutArrange = layoutCss["arrange"]
+            val layoutCss = css.rules[".main"] ?: emptyMap()
+            val layoutArrange = outerArrange ?: layoutCss["arrange"]
             val isLayoutRow = layoutArrange == "row" || layoutArrange == "horizontal"
             val outerMod = Modifier.fillMaxSize().applyCssProps(layoutCss).statusBarsPadding()
 
@@ -60,6 +69,7 @@ fun SlotRenderer(
                     SlotRendererBody(
                         slots = slots, context = context, css = css,
                         customComponents = customComponents, debug = debug,
+                        outerArrange = outerArrange,
                         crossAxisFill = Modifier::fillMaxHeight,
                         weightFn = { w -> Modifier.weight(w) },
                     )
@@ -69,6 +79,7 @@ fun SlotRenderer(
                     SlotRendererBody(
                         slots = slots, context = context, css = css,
                         customComponents = customComponents, debug = debug,
+                        outerArrange = outerArrange,
                         crossAxisFill = Modifier::fillMaxWidth,
                         weightFn = { w -> Modifier.weight(w) },
                     )
@@ -90,6 +101,7 @@ private fun SlotRendererBody(
     css: CssRuleTable,
     customComponents: Map<String, Map<String, Any?>>,
     debug: Boolean,
+    outerArrange: String?,
     crossAxisFill: Modifier.() -> Modifier,
     weightFn: (Float) -> Modifier,
 ) {
@@ -203,6 +215,7 @@ private fun SlotRendererBody(
                                                     css = css,
                                                     customComponents = customComponents,
                                                     debug = debug,
+                                                    outerArrange = compCss["arrange"] ?: outerArrange,
                                                 )
                                             }
                                         }
@@ -291,6 +304,7 @@ private fun SlotRendererBody(
                                                     css = css,
                                                     customComponents = customComponents,
                                                     debug = debug,
+                                                    outerArrange = compCss["arrange"] ?: outerArrange,
                                                 )
                                             }
                                         }
@@ -327,18 +341,21 @@ private fun SlotRendererBody(
             content()
 
             // debug 模式叠加层 — slot 边框色 + 左上角标签
+            // 标签放在 matchParentSize 层：不参与父 Box 尺寸测量，避免撑大 wrap 尺寸的 slot（如 weight: 0）
             if (debug) {
                 val dc = debugColors[(slotIndex - 1) % debugColors.size]
-                Text(
-                    text = "$slotName  w=$weight",
-                    color = dc,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .background(Color(0xCC000000))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                )
+                Box(Modifier.matchParentSize()) {
+                    Text(
+                        text = "$slotName  w=$weight",
+                        color = dc,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .background(Color(0xCC000000))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
             }
         }
     }
@@ -369,14 +386,6 @@ private fun renderCustomIcon(
         tint = tintColor,
         modifier = modifier.size(iconSize),
     )
-}
-
-/** 解析组件 CSS：type 规则为基底，cid 规则覆盖（同名属性以 cid 为准）。 */
-private fun resolveComponentCss(entry: ComponentEntry, css: CssRuleTable): Map<String, String> {
-    val base = css.rules["#${entry.id}"] ?: css.rules[entry.id] ?: emptyMap()
-    val cid = entry.cid ?: return base
-    val cidRules = css.rules["#${cid}"] ?: return base
-    return base + cidRules
 }
 
 /** 从 CSS 属性构建组件级别的 Modifier（视觉样式，不含 weight——weight 在 [SlotRendererBody] 行内处理） */

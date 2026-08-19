@@ -32,7 +32,7 @@ data class ComponentLayout(
     val slots: Map<String, List<ComponentEntry>> = defaultSlots,
     /** 自定义组件定义 —— JSON 中以 `#name` 为 key 的条目 */
     val customComponents: Map<String, Map<String, Any?>> = emptyMap(),
-    /** 全屏播放器 slot 定义 —— fp-slots JSON key 解析至此，JSON 未定义时回退默认值 */
+    /** 全屏播放器 slot 定义 —— full-player JSON key 解析至此，JSON 未定义时回退默认值 */
     val fullPlayerSlots: Map<String, List<ComponentEntry>> = defaultFullPlayerSlots,
 ) {
     companion object {
@@ -58,14 +58,14 @@ data class ComponentLayout(
          *   随后依次为 主封面 / 进度条 / 播放操控按钮
          */
         val defaultFullPlayerSlots: Map<String, List<ComponentEntry>> = mapOf(
-            "main" to listOf(
+            "full-player" to listOf(
                 ComponentEntry(
                     id = "fp-backdrop",
                     extra = mapOf(
                         "children" to mapOf(
-                            "content" to listOf(
-                                ComponentEntry("fp-track-title"),
-                                ComponentEntry("fp-track-subtitle"),
+                            "fp-backdrop" to listOf(
+                                ComponentEntry("fp-title"),
+                                ComponentEntry("fp-subtitle"),
                                 ComponentEntry("fp-cover"),
                                 ComponentEntry("fp-progress"),
                                 ComponentEntry("controls-row"),

@@ -17,11 +17,11 @@ import org.junit.Test
 class NewFormatLayoutParserTest {
 
     @Test
-    fun 对象形式slots_解析为主界面slot字典() {
+    fun 对象形式main_解析为主界面slot字典() {
         val json = JSONObject(
             """
             {
-              "slots": {
+              "main": {
                 "app-top": ["app-name", "spacer"],
                 "app-center": ["tab-bar", "sort", "playlist"],
                 "app-bottom": ["playbar"]
@@ -42,7 +42,7 @@ class NewFormatLayoutParserTest {
         val json = JSONObject(
             """
             {
-              "slots": {
+              "main": {
                 "screen": [
                   "compose1",
                   { "name": "children-slot", "children": ["child-1", "child-2"] },
@@ -69,8 +69,8 @@ class NewFormatLayoutParserTest {
         val json = JSONObject(
             """
             {
-              "main": {
-                "fp-backdrop": ["fp-track-title", "fp-cover"]
+              "full-player": {
+                "fp-backdrop": ["fp-title", "fp-cover"]
               }
             }
             """.trimIndent(),
@@ -78,14 +78,14 @@ class NewFormatLayoutParserTest {
 
         val layout = StyleConfigLoader.parseConfigObjectStatic(json)
 
-        val main = layout.fullPlayerSlots.getValue("main")
+        val main = layout.fullPlayerSlots.getValue("full-player")
         assertEquals(1, main.size)
         assertEquals("fp-backdrop", main[0].id)
 
         @Suppress("UNCHECKED_CAST")
         val children = main[0].extra["children"] as Map<String, List<ComponentEntry>>
-        assertEquals("数组形式 children 包装为匿名 content 子 slot", setOf("content"), children.keys)
-        assertEquals(listOf("fp-track-title", "fp-cover"), children.getValue("content").map { it.id })
+        assertEquals("数组形式 children 包装为以容器 id 命名的子 slot", setOf("fp-backdrop"), children.keys)
+        assertEquals(listOf("fp-title", "fp-cover"), children.getValue("fp-backdrop").map { it.id })
     }
 
     @Test
@@ -93,9 +93,9 @@ class NewFormatLayoutParserTest {
         val json = JSONObject(
             """
             {
-              "main": {
+              "full-player": {
                 "fp-backdrop": {
-                  "main-info": ["fp-track-title", "fp-track-subtitle"],
+                  "main-info": ["fp-title", "fp-subtitle"],
                   "main-cover": ["fp-cover"]
                 }
               }
@@ -105,13 +105,13 @@ class NewFormatLayoutParserTest {
 
         val layout = StyleConfigLoader.parseConfigObjectStatic(json)
 
-        val main = layout.fullPlayerSlots.getValue("main")
+        val main = layout.fullPlayerSlots.getValue("full-player")
         assertEquals("fp-backdrop", main[0].id)
         @Suppress("UNCHECKED_CAST")
         val children = main[0].extra["children"] as Map<String, List<ComponentEntry>>
         assertEquals(setOf("main-info", "main-cover"), children.keys)
         assertEquals(
-            listOf("fp-track-title", "fp-track-subtitle"),
+            listOf("fp-title", "fp-subtitle"),
             children.getValue("main-info").map { it.id },
         )
         assertEquals(listOf("fp-cover"), children.getValue("main-cover").map { it.id })
@@ -122,7 +122,7 @@ class NewFormatLayoutParserTest {
         val json = JSONObject(
             """
             {
-              "slots": {
+              "main": {
                 "screen": [
                   "title",
                   { "name": "fp-backdrop", "children": ["cover", "controls"] },
@@ -142,8 +142,8 @@ class NewFormatLayoutParserTest {
         assertEquals("fp-backdrop", backdrop.id)
         @Suppress("UNCHECKED_CAST")
         val children = backdrop.extra["children"] as Map<String, List<ComponentEntry>>
-        assertEquals(setOf("content"), children.keys)
-        assertEquals(listOf("cover", "controls"), children.getValue("content").map { it.id })
+        assertEquals(setOf("fp-backdrop"), children.keys)
+        assertEquals(listOf("cover", "controls"), children.getValue("fp-backdrop").map { it.id })
     }
 
     @Test
@@ -151,7 +151,7 @@ class NewFormatLayoutParserTest {
         val json = JSONObject(
             """
             {
-              "slots": {
+              "main": {
                 "screen": {
                   "top": ["app-name"],
                   "body": ["playlist"]
@@ -171,11 +171,11 @@ class NewFormatLayoutParserTest {
     }
 
     @Test
-    fun 旧格式_slots数组_仍兼容() {
+    fun 旧格式_main数组_仍兼容() {
         val json = JSONObject(
             """
             {
-              "slots": [
+              "main": [
                 { "app-top": ["app-name", "search-button"] },
                 { "app-bottom": ["playbar"] }
               ]
@@ -195,11 +195,11 @@ class NewFormatLayoutParserTest {
         val json = JSONObject(
             """
             {
-              "main": [
+              "full-player": [
                 {
                   "fp-backdrop": {
                     "children": {
-                      "main-info": ["fp-track-title", "fp-track-subtitle"],
+                      "main-info": ["fp-title", "fp-subtitle"],
                       "main-cover": ["fp-cover"]
                     }
                   }
@@ -211,7 +211,7 @@ class NewFormatLayoutParserTest {
 
         val layout = StyleConfigLoader.parseConfigObjectStatic(json)
 
-        val main = layout.fullPlayerSlots.getValue("main")
+        val main = layout.fullPlayerSlots.getValue("full-player")
         assertEquals(1, main.size)
         assertEquals("fp-backdrop", main[0].id)
         @Suppress("UNCHECKED_CAST")

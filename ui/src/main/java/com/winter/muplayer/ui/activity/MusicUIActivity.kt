@@ -284,7 +284,7 @@ fun MusicPlayerApp(
     var showFullPlayer by remember { mutableStateOf(false) }
 
     // 布局调试开关：true 时 SlotRenderer 显示 slot/组件之间的边界（调试布局用，完成后请改回 false）
-    val isDebug = true
+    val isDebug = false
 
     val safeMode by remember { mutableStateOf(false) }
     val pluginColors by remember { mutableStateOf(emptyMap<String, Any>()) }
@@ -815,12 +815,15 @@ fun FullPlayerPanel(
                 )
             }
     ) {
+        // 全屏播放器独立于主界面：外层排列方向从 .full-player 读取（而非全局 .main），
+        // children 子 slot 之间方向由容器组件 #fp-backdrop 的 arrange 控制，互不影响主界面。
         SlotRenderer(
             slots = fullPlayerSlots,
             context = fpContext,
             css = css,
             customComponents = customComponents,
             debug = debug,
+            outerArrange = css.rules[".full-player"]?.get("arrange"),
         )
     }
 }

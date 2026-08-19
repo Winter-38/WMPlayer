@@ -15,7 +15,7 @@ import java.io.File
  * 支持 `"include": ["style.json"]` 显式引用其他 JSON 文件，支持嵌套 include，
  * visited 集合检测循环引用。
  *
- * slot 排列顺序由 "slots" 数组的索引决定，不依赖 JSON object key 顺序。
+ * slot 排列顺序由 "main" 数组的索引决定，不依赖 JSON object key 顺序。
  * JSON 只描述结构（type / children / class），所有样式由 CSS class 控制。
  */
 class StyleConfigLoader(private val context: Context) {
@@ -126,9 +126,9 @@ class StyleConfigLoader(private val context: Context) {
         if (!mainFile.exists()) {
             mainFile.writeText(buildString {
                 appendLine("{")
-                appendLine("  // slots 数组决定 slot 渲染顺序，数组索引即位置")
+                appendLine("  // main 数组决定主界面 slot 渲染顺序，数组索引即位置")
                 appendLine("  // 样式在 styles.css 中定义")
-                appendLine("  \"slots\": [")
+                appendLine("  \"main\": [")
                 appendLine("    {")
                 appendLine("      \"app-top\": [")
                 appendLine("        \"app-name\",")
@@ -150,8 +150,8 @@ class StyleConfigLoader(private val context: Context) {
                 appendLine("      ]")
                 appendLine("    }")
                 appendLine("  ],")
-                appendLine("  // 全屏播放器 slot，独立于界面 slots")
-                appendLine("  \"main\": [")
+                appendLine("  // 全屏播放器 slot，独立于界面 main")
+                appendLine("  \"full-player\": [")
                 appendLine("    \"track-info\",")
                 appendLine("    \"progress-bar\",")
                 appendLine("    \"controls-row\"")
@@ -164,15 +164,15 @@ class StyleConfigLoader(private val context: Context) {
         val cssFile = File(configDir, "styles.css")
         if (!cssFile.exists()) {
             cssFile.writeText(buildString {
-                appendLine("/* 外层容器方向 — slot 之间的排列方式 */")
+                appendLine("/* 主界面外层容器方向 — slot 之间的排列方式 */")
                 appendLine("/*   arrange: column — 垂直堆叠（默认） */")
                 appendLine("/*   arrange: row    — 水平排列 */")
-                appendLine(".layout { arrange: column; }")
+                appendLine(".main { arrange: column; }")
                 appendLine("")
                 appendLine("/* slot 内部组件排列方向：arrange: row | column */")
                 appendLine("/* slot 比例：weight: 1（默认均分）| 0（包裹内容）| 2、3... */")
                 appendLine("")
-                appendLine(".main       { arrange: column; gap: 8px; }")
+                appendLine(".full-player { arrange: column; gap: 8px; }")
                 appendLine(".app-top    { arrange: row;    weight: 0; }")
                 appendLine("#search-button  { size: 40px; }")
                 appendLine("#setting-button { size: 40px; }")
@@ -208,17 +208,17 @@ class StyleConfigLoader(private val context: Context) {
             }
 
             // ── 全屏播放器 slot ──
-            if (root.has("main")) {
-                val entries = LayoutParser.parseSlotValue(root.get("main"))
+            if (root.has("full-player")) {
+                val entries = LayoutParser.parseSlotValue(root.get("full-player"))
                 if (entries.isNotEmpty()) {
-                    fullPlayerSlots = mapOf("main" to entries)
+                    fullPlayerSlots = mapOf("full-player" to entries)
                 }
             }
 
-            // ── 主界面 slots（支持数组（旧）与对象（新）两种形式）──
-            // 旧：{ "slots": [{ "app-top": [...] }] }
-            // 新：{ "slots": { "app-top": [...], "app-center": [...] } }
-            when (val slotsValue = root.opt("slots")) {
+            // ── 主界面 main（支持数组（旧）与对象（新）两种形式）──
+            // 旧：{ "main": [{ "app-top": [...] }] }
+            // 新：{ "main": { "app-top": [...], "app-center": [...] } }
+            when (val slotsValue = root.opt("main")) {
                 is JSONArray -> {
                     for (i in 0 until slotsValue.length()) {
                         val element = slotsValue.getJSONObject(i)
@@ -239,8 +239,8 @@ class StyleConfigLoader(private val context: Context) {
                         }
                     }
                 }
-                null -> { /* 未配置 slots → 使用默认值 */ }
-                else -> throw IllegalArgumentException("'slots' must be a JSON array or object")
+                null -> { /* 未配置 main → 使用默认值 */ }
+                else -> throw IllegalArgumentException("'main' must be a JSON array or object")
             }
 
             return ComponentLayout(
@@ -288,9 +288,9 @@ class StyleConfigLoader(private val context: Context) {
                 }
                 for (key in obj.keys()) {
                     if (key == "include") continue
-                    if (key == "slots" && base.has("slots") && base.get("slots") is JSONArray && obj.get("slots") is JSONArray) {
-                        val baseArr = base.getJSONArray("slots")
-                        val objArr = obj.getJSONArray("slots")
+                    if (key == "main" && base.has("main") && base.get("main") is JSONArray && obj.get("main") is JSONArray) {
+                        val baseArr = base.getJSONArray("main")
+                        val objArr = obj.getJSONArray("main")
                         for (i in 0 until objArr.length()) {
                             baseArr.put(objArr.get(i))
                         }
@@ -313,8 +313,8 @@ class StyleConfigLoader(private val context: Context) {
             for (key in source.keys()) {
                 if (key == "include") continue
                 val srcVal = source.get(key)
-                if (key == "slots" && srcVal is JSONArray && target.has("slots") && target.get("slots") is JSONArray) {
-                    val targetArr = target.getJSONArray("slots")
+                if (key == "main" && srcVal is JSONArray && target.has("main") && target.get("main") is JSONArray) {
+                    val targetArr = target.getJSONArray("main")
                     for (i in 0 until srcVal.length()) {
                         targetArr.put(srcVal.get(i))
                     }

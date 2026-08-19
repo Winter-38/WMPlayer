@@ -15,4 +15,8 @@ gradle/wrapper/gradle-wrapper.jar
 /record/
 /app/release/
 /.codewhale-tmp/
-/.deepseek/
+/.deepseek//.device-check/
+/.device-config-backup/
+
+/.device-check/
+/.device-config-backup/

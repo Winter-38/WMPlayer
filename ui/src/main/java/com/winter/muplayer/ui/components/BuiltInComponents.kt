@@ -99,10 +99,10 @@ fun registerBuiltInComponents() {
         "cover" to { CoverComponent() },
         "progress-slider" to { ProgressSliderComponent() },
         // 播放控制原子按钮
-        "play-pause-button" to { PlayPauseComponent() },
+        "play-button" to { PlayPauseComponent() },
         "prev-button" to { PrevButtonComponent() },
         "next-button" to { NextButtonComponent() },
-        "play-mode-button" to { PlayModeComponent() },
+        "playmode-button" to { PlayModeComponent() },
         "queue-button" to { QueueButtonComponent() },
         // 全屏播放器组件
         "track-info" to { TrackInfo() },
@@ -111,8 +111,8 @@ fun registerBuiltInComponents() {
         // 全屏播放器细分组件
         "fp-backdrop" to { FpBackdrop() },
         "fp-cover" to { FpCover() },
-        "fp-track-title" to { FpTrackTitle() },
-        "fp-track-subtitle" to { FpTrackSubtitle() },
+        "fp-title" to { FpTrackTitle() },
+        "fp-subtitle" to { FpTrackSubtitle() },
         "fp-progress" to { FpProgress() },
     )
 }
@@ -381,7 +381,7 @@ private fun SlotContext.CoverComponent() {
 
 // ==================== 播放控制原子按钮 ====================
 
-/** 播放模式循环切换的共享逻辑（避免 controls-row 与 play-mode-button 各写一份） */
+/** 播放模式循环切换的共享逻辑（避免 controls-row 与 playmode-button 各写一份） */
 private fun nextPlayMode(mode: PlayMode): PlayMode = when (mode) {
     PlayMode.SEQUENTIAL -> PlayMode.SHUFFLE
     PlayMode.SHUFFLE -> PlayMode.SINGLE_LOOP

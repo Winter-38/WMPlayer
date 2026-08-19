@@ -22,7 +22,7 @@ import java.io.File
  * 若 slot / 容器名与已知 **slot 型组件** id 一致（如 `fp-backdrop`），
  * 解析为 slot 型组件：自身渲染为背景层（fillMaxSize），children 作为前景层叠加。
  * ```json
- * { "main": { "fp-backdrop": ["fp-track-title", "fp-cover"] } }
+ * { "full-player": { "fp-backdrop": ["fp-title", "fp-cover"] } }
  * ```
  *
  * ## 组件数组元素格式
@@ -50,9 +50,6 @@ object LayoutParser {
      * 当前：`fp-backdrop`（封面模糊背景层）。
      */
     val SLOT_COMPONENT_IDS: Set<String> = setOf("fp-backdrop")
-
-    /** 数组形式 children 自动包装的匿名子 slot 名（CSS 用 `.content` 定位） */
-    const val DEFAULT_CHILD_SLOT = "content"
 
     /** 匿名容器组件 id：渲染时未注册 → 背景层透明，仅前景 children 显示 */
     const val ANONYMOUS_CONTAINER = "__slot__"
@@ -101,7 +98,7 @@ object LayoutParser {
             val childrenValue = item.get("children")
             return if (name in SLOT_COMPONENT_IDS) {
                 // name 是 slot 型组件 id → 解析为容器组件（自身作背景层）
-                listOf(ComponentEntry(name, extra = mapOf("children" to childrenMapOf(childrenValue))))
+                listOf(ComponentEntry(name, extra = mapOf("children" to childrenMapOf(name, childrenValue))))
             } else {
                 // 普通命名子 slot：名字用于 CSS 定位（.name）
                 listOf(ComponentEntry(ANONYMOUS_CONTAINER, extra = mapOf("children" to mapOf(name to parseChildrenValue(childrenValue)))))
@@ -115,7 +112,7 @@ object LayoutParser {
 
             // key 是 slot 型组件 id → 容器组件：{ "fp-backdrop": [...] } / { "fp-backdrop": { ... } }
             if (firstKey in SLOT_COMPONENT_IDS) {
-                return listOf(ComponentEntry(firstKey, extra = mapOf("children" to childrenMapOf(value))))
+                return listOf(ComponentEntry(firstKey, extra = mapOf("children" to childrenMapOf(firstKey, value))))
             }
 
             if (value is JSONArray) {
@@ -165,7 +162,7 @@ object LayoutParser {
         if (keys.size == 1) {
             val key = keys.first()
             if (key in SLOT_COMPONENT_IDS) {
-                return ComponentEntry(key, extra = mapOf("children" to childrenMapOf(obj.get(key))))
+                return ComponentEntry(key, extra = mapOf("children" to childrenMapOf(key, obj.get(key))))
             }
         }
         return ComponentEntry(ANONYMOUS_CONTAINER, extra = mapOf("children" to parseChildrenSlots(obj)))
@@ -173,11 +170,12 @@ object LayoutParser {
 
     /**
      * children 值 → 子 slot 字典：
-     * - 数组 → 包装为单个匿名子 slot（[DEFAULT_CHILD_SLOT]）
+     * - 数组 → 包装为单个子 slot，子 slot 名 = 容器组件 id（如 `fp-backdrop` 的 children
+     *   数组用 `.fp-backdrop` 定位，与容器 id 同名便于 CSS 记忆）
      * - 对象 → 子 slot 字典；兼容旧格式包装 `{ "children": { ... } }`
      */
-    private fun childrenMapOf(value: Any): Map<String, List<ComponentEntry>> = when (value) {
-        is JSONArray -> mapOf(DEFAULT_CHILD_SLOT to parseComponents(value))
+    private fun childrenMapOf(containerId: String, value: Any): Map<String, List<ComponentEntry>> = when (value) {
+        is JSONArray -> mapOf(containerId to parseComponents(value))
         is JSONObject -> {
             // 兼容旧格式：{ "children": { "slotA": [...] } } → 取 children 对象为子 slot 字典
             val wrapped = value.optJSONObject("children")

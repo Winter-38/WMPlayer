@@ -19,13 +19,13 @@ class FullPlayerLayoutParserTest {
         val json = JSONObject(
             """
             {
-              "main": [
+              "full-player": [
                 {
                   "fp-backdrop": {
                     "children": {
-                      "content": [
-                        "fp-track-title",
-                        "fp-track-subtitle",
+                      "fp-backdrop": [
+                        "fp-title",
+                        "fp-subtitle",
                         "fp-cover",
                         "fp-progress",
                         "controls-row"
@@ -40,7 +40,7 @@ class FullPlayerLayoutParserTest {
 
         val layout = StyleConfigLoader.parseConfigObjectStatic(json)
 
-        val main = layout.fullPlayerSlots.getValue("main")
+        val main = layout.fullPlayerSlots.getValue("full-player")
         assertEquals(1, main.size)
 
         val backdrop = main[0]
@@ -49,10 +49,10 @@ class FullPlayerLayoutParserTest {
 
         @Suppress("UNCHECKED_CAST")
         val children = backdrop.extra["children"] as Map<String, List<ComponentEntry>>
-        assertEquals(setOf("content"), children.keys)
+        assertEquals(setOf("fp-backdrop"), children.keys)
         assertEquals(
-            listOf("fp-track-title", "fp-track-subtitle", "fp-cover", "fp-progress", "controls-row"),
-            children.getValue("content").map { it.id },
+            listOf("fp-title", "fp-subtitle", "fp-cover", "fp-progress", "controls-row"),
+            children.getValue("fp-backdrop").map { it.id },
         )
     }
 
@@ -61,21 +61,21 @@ class FullPlayerLayoutParserTest {
         val json = JSONObject(
             """
             {
-              "main": ["track-info", "progress-bar", "controls-row"]
+              "full-player": ["track-info", "progress-bar", "controls-row"]
             }
             """.trimIndent(),
         )
 
         val layout = StyleConfigLoader.parseConfigObjectStatic(json)
 
-        val main = layout.fullPlayerSlots.getValue("main")
+        val main = layout.fullPlayerSlots.getValue("full-player")
         assertEquals(listOf("track-info", "progress-bar", "controls-row"), main.map { it.id })
         // 平铺组件不应产生 children
         assertTrue(main.all { it.extra["children"] == null })
     }
 
     @Test
-    fun 未配置main时_回退默认细分组件组装() {
+    fun 未配置fullPlayer时_回退默认细分组件组装() {
         val json = JSONObject(
             """
             {
@@ -85,14 +85,14 @@ class FullPlayerLayoutParserTest {
         )
 
         val layout = StyleConfigLoader.parseConfigObjectStatic(json)
-        // 未配置 main → 使用默认值
+        // 未配置 full-player → 使用默认值
         assertEquals(ComponentLayout.defaultFullPlayerSlots, layout.fullPlayerSlots)
 
-        val main = layout.fullPlayerSlots.getValue("main")
+        val main = layout.fullPlayerSlots.getValue("full-player")
         assertEquals("fp-backdrop", main[0].id)
         @Suppress("UNCHECKED_CAST")
         val children = main[0].extra["children"] as Map<String, List<ComponentEntry>>
-        assertEquals("fp-track-title", children.getValue("content")[0].id)
+        assertEquals("fp-title", children.getValue("fp-backdrop")[0].id)
     }
 
     @Test
@@ -100,11 +100,11 @@ class FullPlayerLayoutParserTest {
         val json = JSONObject(
             """
             {
-              "main": [
+              "full-player": [
                 {
                   "fp-backdrop": {
                     "children": {
-                      "upper": ["fp-track-title"],
+                      "upper": ["fp-title"],
                       "lower": ["controls-row"]
                     }
                   }
@@ -117,10 +117,10 @@ class FullPlayerLayoutParserTest {
         val layout = StyleConfigLoader.parseConfigObjectStatic(json)
 
         @Suppress("UNCHECKED_CAST")
-        val children = layout.fullPlayerSlots.getValue("main")[0]
+        val children = layout.fullPlayerSlots.getValue("full-player")[0]
             .extra["children"] as Map<String, List<ComponentEntry>>
         assertEquals(setOf("upper", "lower"), children.keys)
-        assertEquals(listOf("fp-track-title"), children.getValue("upper").map { it.id })
+        assertEquals(listOf("fp-title"), children.getValue("upper").map { it.id })
         assertEquals(listOf("controls-row"), children.getValue("lower").map { it.id })
     }
 
@@ -129,15 +129,15 @@ class FullPlayerLayoutParserTest {
         val json = JSONObject(
             """
             {
-              "slots": [
+              "main": [
                 { "app-top": ["app-name", "search-button"] },
                 { "app-bottom": ["playbar"] }
               ],
-              "main": [
+              "full-player": [
                 {
                   "fp-backdrop": {
                     "children": {
-                      "content": ["fp-cover", "controls-row"]
+                      "fp-backdrop": ["fp-cover", "controls-row"]
                     }
                   }
                 }
@@ -148,17 +148,17 @@ class FullPlayerLayoutParserTest {
 
         val layout = StyleConfigLoader.parseConfigObjectStatic(json)
 
-        // 主界面 slots 解析正常
+        // 主界面 main 解析正常
         assertEquals(setOf("app-top", "app-bottom"), layout.slots.keys)
         assertEquals(listOf("app-name", "search-button"), layout.slots.getValue("app-top").map { it.id })
         assertEquals(listOf("playbar"), layout.slots.getValue("app-bottom").map { it.id })
 
-        // 全屏 main 解析为容器 + children
-        val main = layout.fullPlayerSlots.getValue("main")
+        // 全屏 full-player 解析为容器 + children
+        val main = layout.fullPlayerSlots.getValue("full-player")
         assertEquals("fp-backdrop", main[0].id)
         @Suppress("UNCHECKED_CAST")
         val children = main[0].extra["children"] as Map<String, List<ComponentEntry>>
-        assertEquals(listOf("fp-cover", "controls-row"), children.getValue("content").map { it.id })
+        assertEquals(listOf("fp-cover", "controls-row"), children.getValue("fp-backdrop").map { it.id })
 
         // customComponents 保持为空（本配置未定义自定义组件）
         assertNotNull(layout.customComponents)

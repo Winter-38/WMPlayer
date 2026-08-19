@@ -17,21 +17,21 @@ class FullPlayerSlotsTest {
     private val expectedComponentIds = setOf(
         "fp-backdrop", // 背景层容器（封面模糊背景）
         "fp-cover", // 主封面
-        "fp-track-title", // 标题
-        "fp-track-subtitle", // 歌手 + 专辑
+        "fp-title", // 标题
+        "fp-subtitle", // 歌手 + 专辑
         "fp-progress", // 进度条
         "controls-row", // 播放操控按钮组
     )
 
     @Test
-    fun defaultFullPlayerSlots_仅含main插槽() {
+    fun defaultFullPlayerSlots_仅含fullPlayer插槽() {
         val slots = ComponentLayout.defaultFullPlayerSlots
-        assertEquals("全屏播放器只应有一个 main 插槽", setOf("main"), slots.keys)
+        assertEquals("全屏播放器只应有一个 full-player 插槽", setOf("full-player"), slots.keys)
     }
 
     @Test
-    fun main插槽_顶层仅一个fpBackdrop背景层容器() {
-        val main = ComponentLayout.defaultFullPlayerSlots.getValue("main")
+    fun fullPlayer插槽_顶层仅一个fpBackdrop背景层容器() {
+        val main = ComponentLayout.defaultFullPlayerSlots.getValue("full-player")
         assertEquals("背景层容器应为唯一顶层组件", 1, main.size)
         val backdrop = main[0]
         assertEquals("fp-backdrop", backdrop.id)
@@ -43,15 +43,15 @@ class FullPlayerSlotsTest {
 
     @Test
     fun fpBackdrop_children前景组件顺序正确() {
-        val main = ComponentLayout.defaultFullPlayerSlots.getValue("main")
+        val main = ComponentLayout.defaultFullPlayerSlots.getValue("full-player")
         @Suppress("UNCHECKED_CAST")
         val children = main[0].extra["children"] as Map<String, List<ComponentEntry>>
-        assertEquals("children 只应包含一个前景子插槽", setOf("content"), children.keys)
-        val content = children.getValue("content").map { it.id }
+        assertEquals("children 只应包含一个前景子插槽", setOf("fp-backdrop"), children.keys)
+        val content = children.getValue("fp-backdrop").map { it.id }
         assertEquals(
             listOf(
-                "fp-track-title", // 标题（左上角）
-                "fp-track-subtitle", // 歌手 + 专辑（左上角）
+                "fp-title", // 标题（左上角）
+                "fp-subtitle", // 歌手 + 专辑（左上角）
                 "fp-cover", // 主封面
                 "fp-progress", // 进度条
                 "controls-row", // 播放操控按钮组
@@ -62,13 +62,13 @@ class FullPlayerSlotsTest {
 
     @Test
     fun 标题与歌手专辑位于前景层顶部_即左上角() {
-        val main = ComponentLayout.defaultFullPlayerSlots.getValue("main")
+        val main = ComponentLayout.defaultFullPlayerSlots.getValue("full-player")
         @Suppress("UNCHECKED_CAST")
         val content = (main[0].extra["children"] as Map<String, List<ComponentEntry>>)
-            .getValue("content").map { it.id }
+            .getValue("fp-backdrop").map { it.id }
         // 标题与副标题必须排在最前，才能渲染在内容区顶部（Text 默认左对齐 → 左上角）
-        assertEquals("fp-track-title", content[0])
-        assertEquals("fp-track-subtitle", content[1])
+        assertEquals("fp-title", content[0])
+        assertEquals("fp-subtitle", content[1])
     }
 
     @Test

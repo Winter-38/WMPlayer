@@ -15,8 +15,8 @@
 - **播放队列** — 管理当前播放队列，支持随机播放、单曲循环、列表循环
 - **UI 布局配置** — 通过 `config/main.json` + `.css` 自定义界面布局和样式，对象化 slot 声明 + 命名子 slot 嵌套
 - **组件系统** — 内置组件注册表 + 插槽渲染器，支持 JSON 声明式 UI 组装；全屏播放器细分组件（主封面/标题/歌手+专辑/进度条/控制按钮/封面模糊背景）可自由组合
-- **slot 型组件** — 容器组件（如 `fp-backdrop`）可作为背景层承载 children 前景内容
-- **CSS 引擎** — 支持两级 CSS（slot 级排列 + 组件级样式），属性覆盖尺寸、颜色、间距、对齐、动画等
+- **slot 型组件** — 容器组件（如 `fp-backdrop`）可作为背景层承载 children 前景内容；children 子 slot 以容器 id 定位（`.fp-backdrop`），子 slot 之间排列方向由容器组件 `#fp-backdrop { arrange }` 控制
+- **CSS 引擎** — 多级样式：主界面（`.main`）与全屏播放器（`.full-player`）方向独立互不影响，slot 级排列 + 组件级样式；属性覆盖尺寸、颜色、间距、对齐、动画等
 - **全屏播放器** — 细分组件组装：主封面、标题、歌手+专辑、进度条、播放操控按钮、封面模糊背景
 - **顶部迷你播放栏** — 底部常驻迷你播放栏
 - **搜索** — 本地曲库搜索
@@ -71,13 +71,17 @@
 app-top     → 顶部栏（应用名、搜索按钮、设置按钮、搜索栏）
 app-center  → 主区域（播放列表）
 app-bottom  → 底部栏（迷你播放栏）
-main        → 全屏播放器（fp-backdrop 背景层 + 细分组件前景）
+full-player → 全屏播放器（fp-backdrop 背景层 + 细分组件前景）
 ```
 
 每个插槽可配置任意内置组件，支持自定义组件定义。slot 可嵌套：组件数组内可用
 `{ "name": "children-slot", "children": ["child-1", "child-2"] }` 声明命名子 slot；
 slot 名与 slot 型组件 id（如 `fp-backdrop`）一致时解析为容器组件（自身作背景层，
 children 作前景层）。
+
+全屏播放器与主界面样式**互不影响**：全屏方向由 `.full-player` 控制（不读主界面的
+`.main`），容器组件 children 中多个子 slot 之间的排列方向由 `#fp-backdrop { arrange }`
+控制（未设时继承 `.full-player`）。
 
 设置页提供「重新读取配置」入口，修改 `main.json` / `style.css` 后可热重载，
 无需重启应用。
