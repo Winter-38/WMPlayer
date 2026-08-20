@@ -27,10 +27,6 @@
     <string name="mode_shuffle">Shuffle</string>
     <string name="mode_single_loop">Single</string>
     <string name="mode_repeat_all">Repeat All</string>
-    <string name="sequential">Sequential</string>
-    <string name="shuffle">Shuffle</string>
-    <string name="single_loop">Repeat One</string>
-    <string name="repeat_all">Repeat All</string>
 
     <!-- Track detail labels -->
     <string name="label_title">Title</string>
@@ -77,8 +73,6 @@
     <string name="section_language">Language</string>
 
     <!-- Playback settings -->
-    <string name="default_play_mode">Default Mode</string>
-    <string name="default_mode_subtitle">Default: %s</string>
     <string name="crossfade">Crossfade</string>
     <string name="crossfade_5s">5s</string>
     <string name="audio_focus">Audio Focus</string>
@@ -94,6 +88,10 @@
     <string name="dynamic_color_subtitle">From wallpaper (Android 12+)</string>
     <string name="blur_background">Blur Background</string>
     <string name="blur_background_subtitle">Blur album art in fullscreen</string>
+    <string name="adaptive_tint">Cover Tint Mode</string>
+    <string name="adaptive_tint_color">Match Color</string>
+    <string name="adaptive_tint_invert">Invert Color</string>
+    <string name="adaptive_tint_mono">Black &amp; White</string>
     <string name="language">Language</string>
     <string name="language_system">System</string>
     <string name="language_zh">中文</string>

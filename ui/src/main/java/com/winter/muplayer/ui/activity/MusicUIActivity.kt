@@ -134,6 +134,7 @@ import coil.request.ImageRequest
 import coil.size.Size
 import com.winter.muplayer.core.MusicPlayerCore
 import com.winter.muplayer.core.QueueEntry
+import com.winter.muplayer.core.SettingsManager
 import com.winter.muplayer.core.scanner.LocalMusicScanner
 import com.winter.muplayer.model.PlayMode
 import com.winter.muplayer.model.PlayerState
@@ -185,6 +186,24 @@ class MusicUIActivity : ComponentActivity() {
         if (!granted) {
             Toast.makeText(this, getString(R.string.audio_permission_required), Toast.LENGTH_SHORT).show()
         }
+        // 音频权限就绪后，顺手请求通知权限（Android 13+ 媒体通知需要）
+        if (granted) {
+            requestNotificationPermissionIfNeeded()
+        }
+    }
+
+    /** 通知权限请求（Android 13+ 显示媒体通知用；拒绝时后台播放仍工作，只是通知不显示） */
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* 无需额外处理 */ }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
@@ -199,6 +218,9 @@ class MusicUIActivity : ComponentActivity() {
         audioPermissionGranted.value = hasAudioPermission()
         if (!audioPermissionGranted.value) {
             requestAudioPermission()
+        } else {
+            // 音频权限已就绪，直接请求通知权限（Android 13+）
+            requestNotificationPermissionIfNeeded()
         }
 
         musicPlayerCore = MusicPlayerCore.getInstance(applicationContext)
@@ -217,6 +239,7 @@ class MusicUIActivity : ComponentActivity() {
             var currentThemeMode by remember { mutableStateOf(settings.themeMode) }
             var currentDynamicColor by remember { mutableStateOf(settings.dynamicColorEnabled) }
             var currentBlurBg by remember { mutableStateOf(settings.blurBackground) }
+            var currentAdaptiveTintStyle by remember { mutableStateOf(settings.adaptiveTintStyle) }
 
             AppTheme(
                 darkTheme = when (currentThemeMode) {
@@ -236,12 +259,13 @@ class MusicUIActivity : ComponentActivity() {
                             musicPlayerCore = musicPlayerCore,
                             hasAudioPermission = audioPermissionGranted.value,
                             blurBackground = currentBlurBg,
+                            adaptiveTintStyle = currentAdaptiveTintStyle,
                             onSettingChanged = {
                                 currentThemeMode = settings.themeMode
                                 currentDynamicColor = settings.dynamicColorEnabled
                                 currentBlurBg = settings.blurBackground
-                            },
-                            onSetPlayMode = musicPlayerCore::setPlayMode)
+                                currentAdaptiveTintStyle = settings.adaptiveTintStyle
+                            })
                     }
                 }
             }
@@ -266,8 +290,9 @@ fun MusicPlayerApp(
     musicPlayerCore: MusicPlayerCore,
     hasAudioPermission: Boolean = true,
     blurBackground: Boolean = false,
-    onSettingChanged: () -> Unit = {},
-    onSetPlayMode: (PlayMode) -> Unit = {}
+    adaptiveTintStyle: com.winter.muplayer.core.SettingsManager.AdaptiveTintStyle =
+        com.winter.muplayer.core.SettingsManager.AdaptiveTintStyle.MONOCHROME,
+    onSettingChanged: () -> Unit = {}
 ) {
     android.util.Log.d("WMPlayer-Perf", "MusicPlayerApp 开始组合")
     val playerState by musicPlayerCore.playerState.collectAsState()
@@ -402,7 +427,6 @@ fun MusicPlayerApp(
                     }
                 ),
                 onSettingChanged = onSettingChanged,
-                onSetPlayMode = onSetPlayMode,
                 onCrossfadeChange = { ms ->
                     (musicPlayerCore.engine as? com.winter.muplayer.core.engine.ExoPlayerEngine)
                         ?.setCrossfadeDuration(ms)
@@ -475,6 +499,7 @@ fun MusicPlayerApp(
             playMode = playMode,
             coverCache = coverCache,
             blurBackground = blurBackground,
+            adaptiveTintStyle = adaptiveTintStyle,
             debug = isDebug,
             musicPlayerCore = musicPlayerCore,
             fullPlayerSlots = configState.fullPlayerSlots,
@@ -686,6 +711,8 @@ fun FullPlayerPanel(
     playMode: PlayMode,
     coverCache: Map<Long, String>,
     blurBackground: Boolean = false,
+    adaptiveTintStyle: com.winter.muplayer.core.SettingsManager.AdaptiveTintStyle =
+        com.winter.muplayer.core.SettingsManager.AdaptiveTintStyle.MONOCHROME,
     debug: Boolean = false,
     musicPlayerCore: MusicPlayerCore,
     fullPlayerSlots: Map<String, List<ComponentEntry>>,
@@ -741,9 +768,9 @@ fun FullPlayerPanel(
         }
     }
     val defaultOnSurface = MaterialTheme.colorScheme.onSurface
-    val adaptiveTint = remember(coverBitmap, defaultOnSurface) {
+    val adaptiveTint = remember(coverBitmap, defaultOnSurface, adaptiveTintStyle) {
         if (blurBackground) {
-            coverBitmap?.let { computeAdaptiveTint(it) } ?: defaultOnSurface
+            coverBitmap?.let { computeAdaptiveTint(it, adaptiveTintStyle) } ?: defaultOnSurface
         } else {
             defaultOnSurface
         }
@@ -1370,7 +1397,7 @@ private fun computeCoverCacheSize(context: android.content.Context): String {
  * 从封面 Bitmap 采样像素，计算平均亮度，返回配适的按钮图标颜色。
  * 暗封面 → 白色，亮封面 → 深灰色，确保按钮在模糊背景上清晰可见。
  */
-private fun computeAdaptiveTint(bitmap: Bitmap): Color {
+private fun computeAdaptiveTint(bitmap: Bitmap, style: SettingsManager.AdaptiveTintStyle): Color {
     // HARDWARE 位图不支持 getPixel()，先复制为软件可读格式
     val isHardware = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bitmap.config == Bitmap.Config.HARDWARE
     val readable = if (isHardware) {
@@ -1391,8 +1418,40 @@ private fun computeAdaptiveTint(bitmap: Bitmap): Color {
         }
     }
     if (count == 0) return Color(0xFF1A1A1A)
-    val avgLuminance = (0.299f * sumR + 0.587f * sumG + 0.114f * sumB) / (count * 255f)
-    return if (avgLuminance > 0.55f) Color(0xFF1A1A1A) else Color.White
+
+    val avgR = sumR / count / 255f
+    val avgG = sumG / count / 255f
+    val avgB = sumB / count / 255f
+    val avgLuminance = 0.299f * avgR + 0.587f * avgG + 0.114f * avgB
+
+    // 平均色 → HSV（供正色/反色做饱和度与明度增强）
+    val avgInt = android.graphics.Color.rgb(
+        (avgR * 255f).toInt().coerceIn(0, 255),
+        (avgG * 255f).toInt().coerceIn(0, 255),
+        (avgB * 255f).toInt().coerceIn(0, 255),
+    )
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(avgInt, hsv)
+
+    return when (style) {
+        // 正色：保留封面色调（色相），但饱和度保底 + 明度与背景取反，
+        // 避免平均色低饱和、与模糊背景同明度导致的“淡”
+        SettingsManager.AdaptiveTintStyle.COLOR -> {
+            hsv[1] = maxOf(hsv[1], 0.6f)
+            hsv[2] = if (avgLuminance > 0.5f) minOf(hsv[2], 0.35f) else maxOf(hsv[2], 0.85f)
+            Color(android.graphics.Color.HSVToColor(hsv))
+        }
+        // 反色：反相已保证明度与背景相反，再补饱和度保底（灰封面时反色也灰）
+        SettingsManager.AdaptiveTintStyle.INVERT -> {
+            hsv[0] = (hsv[0] + 180f) % 360f
+            hsv[1] = maxOf(hsv[1], 0.6f)
+            hsv[2] = 1f - hsv[2]
+            Color(android.graphics.Color.HSVToColor(hsv))
+        }
+        // 黑白：按平均亮度取纯黑/纯白（最大亮度对比）
+        SettingsManager.AdaptiveTintStyle.MONOCHROME ->
+            if (avgLuminance > 0.55f) Color(0xFF1A1A1A) else Color.White
+    }
 }
 
 // ==================== 语言切换 ====================

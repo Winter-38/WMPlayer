@@ -11,6 +11,7 @@ import com.winter.muplayer.config.isSlotVertical
 import com.winter.muplayer.config.parseCssColor
 import com.winter.muplayer.config.parseCssDp
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.aspectRatio
@@ -76,6 +77,15 @@ import com.winter.muplayer.model.PlayerState
 import com.winter.muplayer.model.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/** 颜色变暗：factor ∈ (0, 1)，越小越暗；alpha 保持不变 */
+private fun darker(color: Color, factor: Float): Color =
+    Color(
+        red = color.red * factor,
+        green = color.green * factor,
+        blue = color.blue * factor,
+        alpha = color.alpha,
+    )
 
 /**
  * 注册所有内置组件到 ComponentRegistry。
@@ -1072,12 +1082,29 @@ private fun SlotContext.FpCover() {
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                Icon(
-                    painterResource(com.winter.muplayer.ui.R.drawable.ic_music_off),
-                    contentDescription = null,
-                    modifier = Modifier.size(100.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                )
+                // 无封面占位：边框 + 比周围（surfaceVariant）略深的填充 + 居中图标
+                val borderColor = MaterialTheme.colorScheme.outlineVariant
+                val innerCorner = albumArtCorner - 8.dp
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(innerCorner))
+                        .background(darker(MaterialTheme.colorScheme.surfaceVariant, 0.9f))
+                        .border(
+                            width = 1.5.dp,
+                            color = borderColor,
+                            shape = RoundedCornerShape(innerCorner),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painterResource(com.winter.muplayer.ui.R.drawable.ic_music_off),
+                        contentDescription = null,
+                        modifier = Modifier.size(80.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                }
             }
         }
     }
@@ -1121,6 +1148,8 @@ private fun SlotContext.FpTrackSubtitle() {
 @Composable
 private fun SlotContext.FpProgress() {
     val progressData = LocalProgress.current
+    // 跟随背面模糊封面的亮度：亮封面 → 深色，暗封面 → 白色（高对比）
+    val tint = if (adaptiveTint != Color.Unspecified) adaptiveTint else MaterialTheme.colorScheme.onSurface
     Column(modifier = Modifier.fillMaxWidth()) {
         Slider(
             value = if (progressData.duration > 0)
@@ -1131,9 +1160,9 @@ private fun SlotContext.FpProgress() {
             },
             modifier = Modifier.fillMaxWidth(),
             colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                thumbColor = tint,
+                activeTrackColor = tint,
+                inactiveTrackColor = tint.copy(alpha = 0.3f)
             )
         )
         Row(
@@ -1143,12 +1172,12 @@ private fun SlotContext.FpProgress() {
             Text(
                 text = formatDuration(progressData.progress),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = tint.copy(alpha = 0.75f)
             )
             Text(
                 text = formatDuration(progressData.duration),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = tint.copy(alpha = 0.75f)
             )
         }
     }
@@ -1285,32 +1314,27 @@ private fun SlotContext.ControlsRow() {
     val tint = if (adaptiveTint != Color.Unspecified) adaptiveTint else MaterialTheme.colorScheme.onSurface
 
     if (isSlotVertical) {
-        // 竖向父 slot → 按钮垂直居中堆叠
-        Column(
+        // 竖向父 slot → 全部操控按钮单排均分排列
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             PlayModeButton(playMode = playMode, onClick = {
                 onPlayModeChange(nextPlayMode(playMode))
             }, tint = tint)
+            ControlButton(icon = painterResource(R.drawable.ic_skip_previous), onClick = onPrevious, size = 40.dp, tint = tint)
             PlayPauseButton(
                 isPlaying = isPlaying,
                 isLoading = playerState.state == PlayerState.LOADING,
                 onPlay = onPlay, onPause = onPause,
                 containerColor = tint.copy(alpha = 0.2f), iconTint = tint,
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ControlButton(icon = painterResource(R.drawable.ic_skip_previous), onClick = onPrevious, size = 40.dp, tint = tint)
-                ControlButton(icon = painterResource(R.drawable.ic_skip_next), onClick = onNext, size = 40.dp, tint = tint)
-                IconButton(onClick = onOpenQueue) {
-                    Icon(painterResource(R.drawable.ic_playlist_music),
-                        contentDescription = stringResource(com.winter.muplayer.ui.R.string.playlist),
-                        modifier = Modifier.size(28.dp), tint = tint)
-                }
+            ControlButton(icon = painterResource(R.drawable.ic_skip_next), onClick = onNext, size = 40.dp, tint = tint)
+            IconButton(onClick = onOpenQueue) {
+                Icon(painterResource(R.drawable.ic_playlist_music),
+                    contentDescription = stringResource(com.winter.muplayer.ui.R.string.playlist),
+                    modifier = Modifier.size(28.dp), tint = tint)
             }
         }
         return

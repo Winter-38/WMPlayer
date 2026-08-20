@@ -72,7 +72,14 @@ class MusicPlaybackService : MediaSessionService() {
     /** 处理通知按钮点击和自定义 Action */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        AppLogger.i("Service", "onStartCommand action=${intent?.action}")
         when (intent?.action) {
+            // 启动播放：Service 自己立即进入前台并显示通知，
+            // 满足 startForegroundService 的 5 秒 startForeground 要求，
+            // 不依赖外部调用链（外部调用可能因时序/异常被吞而失败）
+            ACTION_PLAY -> {
+                startForeground(NOTIFICATION_ID, buildNotification())
+            }
             ACTION_PLAY_PAUSE -> {
                 val core = MusicPlayerCore.getInstance(applicationContext)
                 if (core.playerState.value.state == com.winter.muplayer.model.PlayerState.PLAYING) {
@@ -87,6 +94,7 @@ class MusicPlaybackService : MediaSessionService() {
                 stopForegroundPlayback()
                 stopSelf()
             }
+            // 其他 action（null 等）:保持后台等待外部 startForegroundPlayback 刷新
         }
         return START_NOT_STICKY
     }
@@ -198,13 +206,16 @@ class MusicPlaybackService : MediaSessionService() {
         private const val NOTIFICATION_ID = 1001
         private const val REQUEST_CODE_OPEN_APP = 100
 
+        private const val ACTION_PLAY = "com.winter.muplayer.action.PLAY"
         private const val ACTION_PLAY_PAUSE = "com.winter.muplayer.action.PLAY_PAUSE"
         private const val ACTION_SKIP_NEXT = "com.winter.muplayer.action.SKIP_NEXT"
         private const val ACTION_SKIP_PREVIOUS = "com.winter.muplayer.action.SKIP_PREVIOUS"
         private const val ACTION_STOP = "com.winter.muplayer.action.STOP"
 
         fun start(context: Context) {
-            val intent = Intent(context, MusicPlaybackService::class.java)
+            val intent = Intent(context, MusicPlaybackService::class.java).apply {
+                action = ACTION_PLAY
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

@@ -27,6 +27,7 @@
 -keep class com.winter.muplayer.core.SettingsManager { *; }
 -keep class com.winter.muplayer.core.SettingsManager$ThemeMode { *; }
 -keep class com.winter.muplayer.core.SettingsManager$AppLanguage { *; }
+-keep class com.winter.muplayer.core.SettingsManager$AdaptiveTintStyle { *; }
 
 # ==================== 日志器（Kotlin object + 内部数据结构）====================
 # AppLogger 是跨模块公共 API，base-ui 中直接调用 d/i/w/e 等方法，

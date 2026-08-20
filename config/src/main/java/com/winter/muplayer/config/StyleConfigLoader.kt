@@ -114,8 +114,8 @@ class StyleConfigLoader(private val context: Context) {
         resolveWithIncludesStatic(file, configDir, visited)
 
     /**
-     * 将默认配置写入磁盘（创建 config/main.json + style.css）。
-     * 文件已存在时跳过。
+     * 将默认配置写入磁盘（创建 config/main.json + styles.css）。
+     * 文件已存在时跳过。模板内容见 companion 的 [defaultMainJson] / [defaultStylesCss]。
      */
     fun writeDefaultsIfMissing() {
         if (configDir.isDirectory && File(configDir, "main.json").exists()) return
@@ -124,62 +124,13 @@ class StyleConfigLoader(private val context: Context) {
         // 单个 main.json，无多余间接引用。include 机制保留给高级用户自行拆分。
         val mainFile = File(configDir, "main.json")
         if (!mainFile.exists()) {
-            mainFile.writeText(buildString {
-                appendLine("{")
-                appendLine("  // main 数组决定主界面 slot 渲染顺序，数组索引即位置")
-                appendLine("  // 样式在 styles.css 中定义")
-                appendLine("  \"main\": [")
-                appendLine("    {")
-                appendLine("      \"app-top\": [")
-                appendLine("        \"app-name\",")
-                appendLine("        \"spacer\",")
-                appendLine("        \"search-button\",")
-                appendLine("        \"setting-button\"")
-                appendLine("      ]")
-                appendLine("    },")
-                appendLine("    {")
-                appendLine("      \"app-center\": [")
-                appendLine("        \"tab-bar\",")
-                appendLine("        \"sort\",")
-                appendLine("        \"playlist\"")
-                appendLine("      ]")
-                appendLine("    },")
-                appendLine("    {")
-                appendLine("      \"app-bottom\": [")
-                appendLine("        \"playbar\"")
-                appendLine("      ]")
-                appendLine("    }")
-                appendLine("  ],")
-                appendLine("  // 全屏播放器 slot，独立于界面 main")
-                appendLine("  \"full-player\": [")
-                appendLine("    \"track-info\",")
-                appendLine("    \"progress-bar\",")
-                appendLine("    \"controls-row\"")
-                appendLine("  ]")
-                appendLine("}")
-            })
+            mainFile.writeText(defaultMainJson())
         }
 
         // 默认 styles.css
         val cssFile = File(configDir, "styles.css")
         if (!cssFile.exists()) {
-            cssFile.writeText(buildString {
-                appendLine("/* 主界面外层容器方向 — slot 之间的排列方式 */")
-                appendLine("/*   arrange: column — 垂直堆叠（默认） */")
-                appendLine("/*   arrange: row    — 水平排列 */")
-                appendLine(".main { arrange: column; }")
-                appendLine("")
-                appendLine("/* slot 内部组件排列方向：arrange: row | column */")
-                appendLine("/* slot 比例：weight: 1（默认均分）| 0（包裹内容）| 2、3... */")
-                appendLine("")
-                appendLine(".full-player { arrange: column; gap: 8px; }")
-                appendLine(".app-top    { arrange: row;    weight: 0; }")
-                appendLine("#search-button  { size: 40px; }")
-                appendLine("#setting-button { size: 40px; }")
-                appendLine("#spacer     { weight: 1; }")
-                appendLine(".app-center { arrange: column; weight: 1; }")
-                appendLine(".app-bottom { arrange: row;    weight: 0; }")
-            })
+            cssFile.writeText(defaultStylesCss())
         }
     }
 
@@ -189,6 +140,122 @@ class StyleConfigLoader(private val context: Context) {
 
     companion object {
         // ── 以下静态方法同时被 StyleConfigLoader（实例）和 ConfigPreload（后台线程）调用 ──
+
+        /**
+         * 默认 main.json 模板（首次启动写入磁盘）——与设备实测配置一致
+         * （来源：手机 Download / App config，两处相同）。
+         *
+         * - main 为数组形式（索引即 slot 渲染顺序）；app-top 左侧有 m-top-spacer
+         * - full-player：fp-backdrop 为 slot 型容器（背景层），children 数组自动包装
+         *   为同名子 slot；main-cover 为命名子 slot（CSS 用 .main-cover 定位）
+         */
+        fun defaultMainJson(): String = """
+{
+  // ═══════════════════════════════════════════════════
+  // WMPlayer 默认布局（与设备实测配置一致）
+  // main —— 数组形式：索引即 slot 渲染顺序
+  // full-player —— fp-backdrop 为 slot 型容器（背景层），children 数组自动包装
+  //   为同名子 slot；main-cover 为命名子 slot（CSS 用 .main-cover 定位）
+  // ═══════════════════════════════════════════════════
+  "main": [
+    {
+      "app-top": [
+        "spacer@m-top-spacer",
+        "app-name",
+        "spacer",
+        "search-button",
+        "setting-button"
+      ]
+    },
+    {
+      "app-center": [
+        "tab-bar",
+        "sort",
+        "playlist"
+      ]
+    },
+    {
+      "app-bottom": [
+        "playbar"
+      ]
+    }
+  ],
+  "full-player": {
+    "fp-backdrop": [
+      "fp-title",
+      "fp-subtitle",
+      { "name": "main-cover", "children": ["fp-cover"] },
+      "fp-progress",
+      "controls-row",
+      "spacer@fp-bottom-spacer"
+    ]
+  }
+}
+""".trimIndent()
+
+        /** 默认 styles.css 模板（首次启动写入磁盘）——与设备实测配置一致（来源：手机 Download / App config，两处相同）。 */
+        fun defaultStylesCss(): String = """
+/* ═══════════════════════════════════════════════════
+   WMPlayer 默认样式（与设备实测配置一致）
+   主界面 slot 方向由 .main 控制；全屏播放器由 .full-player 控制
+   #tab-bar { display: row } 为横向 TabRow（column 为竖向 FilterChip）
+   ═══════════════════════════════════════════════════ */
+
+/* ── 主界面外层：slot 垂直堆叠 ── */
+.main { arrange: column; }
+
+/* ── 顶部栏：水平排列 ── */
+.app-top {
+  arrange: row;
+  weight: 0;
+  gap: 4px;
+  padding: 8px 12px;
+}
+
+#m-top-spacer { weight: 0;  }
+/* 应用名字号 */
+#app-name { font-size: 20px; }
+
+/* 图标按钮尺寸（color 可设置图标颜色，默认跟随主题） */
+#search-button  { size: 40px; }
+#setting-button { size: 40px; }
+
+/* 弹性占位：把应用名与右侧按钮推到两端 */
+#spacer { weight: 1; }
+
+/* ── 主内容区：垂直排列，占满剩余空间 ── */
+.app-center {
+  arrange: column;
+  weight: 1;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+/* 分类标签：竖向 FilterChip 列表（display: row 可切换为顶部 TabRow） */
+#tab-bar { display: row; }
+
+/* ── 底部迷你播放栏 ── */
+.app-bottom {
+  arrange: row;
+  weight: 0;
+}
+
+/* ═══ 全屏播放器 ═══ */
+
+/* 外层方向：垂直排列 */
+.full-player { arrange: column; gap: 8px; }
+
+/* fp-backdrop 前景子 slot：内边距，让内容不贴边 */
+.fp-backdrop { padding: 24px; }
+
+/* 主封面：占据剩余空间，封面垂直居中 */
+.main-cover {
+  weight: 1;
+  justify-content: center;
+}
+
+#fp-bottom-spacer { weight: 0; height: 32px}
+""".trimIndent()
 
         /** 从根级 JSON 对象解析 ComponentLayout。 */
         internal fun parseConfigObjectStatic(root: JSONObject): ComponentLayout {

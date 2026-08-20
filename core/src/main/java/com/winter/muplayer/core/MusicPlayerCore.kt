@@ -110,11 +110,7 @@ class MusicPlayerCore private constructor(context: Context) {
             }
         }
 
-        // 应用设置：默认播放模式、跨fade、音频焦点
-        val savedMode = settings.defaultPlayMode
-        if (savedMode != PlayMode.SEQUENTIAL) {
-            setPlayMode(savedMode)
-        }
+        // 应用设置：跨fade、音频焦点
         if (settings.crossfadeDurationMs > 0) {
             (engine as? ExoPlayerEngine)?.setCrossfadeDuration(settings.crossfadeDurationMs)
         }
@@ -135,13 +131,30 @@ class MusicPlayerCore private constructor(context: Context) {
     /** 用于后台服务的 applicationContext */
     private val appContextForBg: android.content.Context = context
 
+    /**
+     * 确保后台播放服务在前台并显示媒体通知（幂等）。
+     * 所有进入播放状态的路径都应调用：play / playTrackAtIndex / playNext / playPrevious。
+     * 服务未启动则先启动；已启动则刷新前台通知。
+     */
+    private fun ensureForegroundPlayback() {
+        if (isReleased) return
+        try {
+            if (MusicPlaybackService.currentService == null) {
+                MusicPlaybackService.start(appContextForBg)
+            }
+            MusicPlaybackService.currentService?.startForegroundPlayback()
+        } catch (e: Exception) {
+            // Android 12+ 后台启动前台服务受限等场景：降级为不显示前台通知，不中断播放
+            AppLogger.w("Player", "ensureForegroundPlayback failed: ${e.message}")
+        }
+    }
+
     /** 播放！如果还没准备好会自动先准备 */
     fun play() {
         AppLogger.i("Player", "play")
         if (isReleased) return
         // 启动前台服务并显示媒体通知
-        MusicPlaybackService.start(appContextForBg)
-        MusicPlaybackService.currentService?.startForegroundPlayback()
+        ensureForegroundPlayback()
         scope.launch {
             engineMutex.withLock {
                 val currentTrack = queueManager.getCurrentTrack() ?: return@withLock
@@ -163,6 +176,7 @@ class MusicPlayerCore private constructor(context: Context) {
                 if (track != null) {
                     prepareTrackInternal(track)
                     engine.play()
+                    ensureForegroundPlayback()
                 }
             }
         }
@@ -192,6 +206,7 @@ class MusicPlayerCore private constructor(context: Context) {
                 if (nextTrack != null) {
                     prepareTrackInternal(nextTrack)
                     engine.play()
+                    ensureForegroundPlayback()
                 } else {
                     engine.stop()
                     _playerState.update {
@@ -214,6 +229,7 @@ class MusicPlayerCore private constructor(context: Context) {
                 if (prevTrack != null) {
                     prepareTrackInternal(prevTrack)
                     engine.play()
+                    ensureForegroundPlayback()
                 } else {
                     engine.seekTo(0L)
                 }
@@ -236,7 +252,6 @@ class MusicPlayerCore private constructor(context: Context) {
 
     /** 切换播放模式～会同步更新队列管理器的模式 */
     fun setPlayMode(mode: PlayMode) {
-        settings.defaultPlayMode = mode
         scope.launch {
             if (isReleased) return@launch
             queueManager.setPlayMode(mode)
@@ -293,6 +308,7 @@ class MusicPlayerCore private constructor(context: Context) {
                 if (currentTrack != null) {
                     prepareTrackInternal(currentTrack)
                     engine.play()
+                    ensureForegroundPlayback()
                 }
             }
         }
@@ -320,6 +336,7 @@ class MusicPlayerCore private constructor(context: Context) {
                             progressTracker.stop()
                             prepareTrackInternal(currentTrack)
                             engine.play()
+                            ensureForegroundPlayback()
                         }
                     }
                 } else {
@@ -339,6 +356,7 @@ class MusicPlayerCore private constructor(context: Context) {
                         progressTracker.stop()
                         prepareTrackInternal(currentTrack)
                         engine.play()
+                        ensureForegroundPlayback()
                     }
                 }
             }

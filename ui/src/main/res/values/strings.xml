@@ -27,10 +27,6 @@
     <string name="mode_shuffle">随机</string>
     <string name="mode_single_loop">单曲</string>
     <string name="mode_repeat_all">循环</string>
-    <string name="sequential">顺序播放</string>
-    <string name="shuffle">随机播放</string>
-    <string name="single_loop">单曲循环</string>
-    <string name="repeat_all">列表循环</string>
 
     <!-- 曲目详情标签 -->
     <string name="label_title">标题</string>
@@ -76,8 +72,6 @@
     <string name="section_about">关于</string>
 
     <!-- 播放设置 -->
-    <string name="default_play_mode">默认播放模式</string>
-    <string name="default_mode_subtitle">默认使用「%s」模式</string>
     <string name="crossfade">音频淡入淡出</string>
     <string name="crossfade_5s">5s</string>
     <string name="audio_focus">音频焦点处理</string>
@@ -93,6 +87,10 @@
     <string name="dynamic_color_subtitle">使用壁纸颜色生成主题（Android 12+）</string>
     <string name="blur_background">封面模糊背景</string>
     <string name="blur_background_subtitle">全屏播放时封面图模糊作为背景</string>
+    <string name="adaptive_tint">封面取色模式</string>
+    <string name="adaptive_tint_color">正色</string>
+    <string name="adaptive_tint_invert">反色</string>
+    <string name="adaptive_tint_mono">黑白</string>
 
     <!-- 音乐扫描 -->
     <string name="auto_scan">启动时自动扫描</string>

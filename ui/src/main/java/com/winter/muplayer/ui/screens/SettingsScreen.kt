@@ -29,7 +29,6 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onRescan: () -> Unit = {},
     onSettingChanged: () -> Unit = {},
-    onSetPlayMode: (com.winter.muplayer.model.PlayMode) -> Unit = {},
     cacheInfo: CacheInfo = CacheInfo(),
     onCrossfadeChange: (Int) -> Unit = {},
     onLanguageChange: () -> Unit = {},
@@ -70,7 +69,6 @@ fun SettingsScreen(
             // ========== 播放设置 ==========
             item { SectionHeader(stringResource(R.string.section_playback)) }
 
-            item { PlayModeSetting(settings, onSettingChanged, onSetPlayMode) }
             item { CrossfadeSetting(settings, onCrossfadeChange) }
             item { AudioFocusSetting(settings) }
 
@@ -82,6 +80,7 @@ fun SettingsScreen(
                 item { DynamicColorSetting(settings, onSettingChanged) }
             }
             item { BlurBackgroundSetting(settings, onSettingChanged) }
+            item { AdaptiveTintSetting(settings, onSettingChanged) }
 
             // ========== 音乐扫描 ==========
             item { SectionHeader(stringResource(R.string.section_scan)) }
@@ -143,91 +142,6 @@ private fun SectionHeader(title: String) {
         modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 4.dp)
     )
     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-}
-
-@Composable
-private fun PlayModeSetting(
-    settings: SettingsManager,
-    onSettingChanged: () -> Unit,
-    onSetPlayMode: (com.winter.muplayer.model.PlayMode) -> Unit
-) {
-    var currentMode by remember { mutableStateOf(settings.defaultPlayMode) }
-    var expanded by remember { mutableStateOf(false) }
-    val modeLabel = when (currentMode) {
-        com.winter.muplayer.model.PlayMode.SEQUENTIAL -> stringResource(R.string.sequential)
-        com.winter.muplayer.model.PlayMode.SHUFFLE -> stringResource(R.string.shuffle)
-        com.winter.muplayer.model.PlayMode.SINGLE_LOOP -> stringResource(R.string.single_loop)
-        com.winter.muplayer.model.PlayMode.REPEAT_ALL -> stringResource(R.string.repeat_all)
-    }
-    val allModes = com.winter.muplayer.model.PlayMode.entries
-    val modeNames = mapOf(
-        com.winter.muplayer.model.PlayMode.SEQUENTIAL to stringResource(R.string.sequential),
-        com.winter.muplayer.model.PlayMode.SHUFFLE to stringResource(R.string.shuffle),
-        com.winter.muplayer.model.PlayMode.SINGLE_LOOP to stringResource(R.string.single_loop),
-        com.winter.muplayer.model.PlayMode.REPEAT_ALL to stringResource(R.string.repeat_all)
-    )
-
-    SettingsClickItem(
-        title = stringResource(R.string.default_play_mode),
-        subtitle = stringResource(R.string.default_mode_subtitle, modeLabel),
-        onClick = { expanded = true }
-    )
-    if (expanded) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { expanded = false }) {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        stringResource(R.string.default_play_mode),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    allModes.forEach { mode ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    currentMode = mode
-                                    settings.defaultPlayMode = mode
-                                    expanded = false
-                                }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = mode == currentMode,
-                                onClick = {
-                                    currentMode = mode
-                                    settings.defaultPlayMode = mode
-                                    onSetPlayMode(mode)
-                                    onSettingChanged()
-                                    expanded = false
-                                }
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = modeNames[mode] ?: mode.name,
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = { expanded = false }) {
-                        Text(stringResource(R.string.close))
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -378,6 +292,85 @@ private fun BlurBackgroundSetting(settings: SettingsManager, onSettingChanged: (
         checked = enabled,
         onCheckedChange = { enabled = it; settings.blurBackground = it; onSettingChanged() }
     )
+}
+
+@Composable
+private fun AdaptiveTintSetting(settings: SettingsManager, onSettingChanged: () -> Unit) {
+    var style by remember { mutableStateOf(settings.adaptiveTintStyle) }
+    var expanded by remember { mutableStateOf(false) }
+    val styleLabel = when (style) {
+        SettingsManager.AdaptiveTintStyle.COLOR -> stringResource(R.string.adaptive_tint_color)
+        SettingsManager.AdaptiveTintStyle.INVERT -> stringResource(R.string.adaptive_tint_invert)
+        SettingsManager.AdaptiveTintStyle.MONOCHROME -> stringResource(R.string.adaptive_tint_mono)
+    }
+    val allStyles = SettingsManager.AdaptiveTintStyle.entries
+    val styleNames = mapOf(
+        SettingsManager.AdaptiveTintStyle.COLOR to stringResource(R.string.adaptive_tint_color),
+        SettingsManager.AdaptiveTintStyle.INVERT to stringResource(R.string.adaptive_tint_invert),
+        SettingsManager.AdaptiveTintStyle.MONOCHROME to stringResource(R.string.adaptive_tint_mono)
+    )
+
+    SettingsClickItem(
+        title = stringResource(R.string.adaptive_tint),
+        subtitle = styleLabel,
+        onClick = { expanded = true }
+    )
+    if (expanded) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { expanded = false }) {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        stringResource(R.string.adaptive_tint),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    allStyles.forEach { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    style = item
+                                    settings.adaptiveTintStyle = item
+                                    onSettingChanged()
+                                    expanded = false
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = item == style,
+                                onClick = {
+                                    style = item
+                                    settings.adaptiveTintStyle = item
+                                    onSettingChanged()
+                                    expanded = false
+                                }
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = styleNames[item] ?: item.name,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { expanded = false }) {
+                        Text(stringResource(R.string.close))
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
