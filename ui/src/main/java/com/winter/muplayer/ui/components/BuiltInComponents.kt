@@ -66,6 +66,9 @@ import com.winter.muplayer.ui.browser.MusicCategory
 import com.winter.muplayer.ui.browser.displayName
 import android.os.Build
 import android.graphics.Bitmap
+import androidx.compose.foundation.MarqueeAnimationMode
+import androidx.compose.foundation.MarqueeSpacing
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.winter.muplayer.ui.R
 import com.winter.muplayer.ui.components.ControlButton
@@ -822,7 +825,15 @@ private fun SlotContext.PlayBar() {
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 8.dp),
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            animationMode = MarqueeAnimationMode.Immediately,
+                            spacing = MarqueeSpacing(0.dp),
+                            repeatDelayMillis = 1000,
+                            velocity = 40.dp,
+                        ),
                 )
                 if (currentTrack != null) {
                     Text(
@@ -887,6 +898,13 @@ private fun SlotContext.PlayBar() {
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        animationMode = MarqueeAnimationMode.Immediately,
+                        spacing = MarqueeSpacing(0.dp),
+                        repeatDelayMillis = 1000,
+                        velocity = 40.dp,
+                    ),
                 )
                 if (currentTrack != null) {
                     Text(
@@ -1123,6 +1141,13 @@ private fun SlotContext.FpTrackTitle() {
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         color = tint,
+        modifier = Modifier.basicMarquee(
+            iterations = Int.MAX_VALUE,
+            animationMode = MarqueeAnimationMode.Immediately,
+            spacing = MarqueeSpacing(0.dp),
+            repeatDelayMillis = 1000,
+            velocity = 40.dp,
+        ),
     )
 }
 
