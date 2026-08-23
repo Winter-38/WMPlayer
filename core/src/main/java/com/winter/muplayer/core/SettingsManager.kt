@@ -44,6 +44,11 @@ class SettingsManager(context: Context) {
         get() = prefs.getBoolean(KEY_BLUR_BG, false)
         set(value) = prefs.edit().putBoolean(KEY_BLUR_BG, value).apply()
 
+    /** 按钮点击粒子特效 */
+    var particleEffectEnabled: Boolean
+        get() = prefs.getBoolean(KEY_PARTICLE_EFFECT, true)
+        set(value) = prefs.edit().putBoolean(KEY_PARTICLE_EFFECT, value).apply()
+
     // ==================== 封面自适应取色 ====================
 
     /** 封面模糊背景模式下组件取色方式：正色 / 反色 / 黑白 */
@@ -80,7 +85,7 @@ class SettingsManager(context: Context) {
 
     // ==================== 歌曲排序 ====================
 
-    /** 排序字段：0=名称 1=时长 2=大小 3=日期 4=类型 */
+    /** 排序字段：0=名称 1=时长 2=大小 3=日期 */
     var sortField: Int
         get() = prefs.getInt(KEY_SORT_FIELD, 0)
         set(value) = prefs.edit().putInt(KEY_SORT_FIELD, value).apply()
@@ -100,6 +105,7 @@ class SettingsManager(context: Context) {
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_BLUR_BG = "blur_background"
+        private const val KEY_PARTICLE_EFFECT = "particle_effect"
         private const val KEY_ADAPTIVE_TINT_STYLE = "adaptive_tint_style"
         private const val KEY_AUTO_SCAN = "auto_scan"
         private const val KEY_APP_LANGUAGE = "app_language"

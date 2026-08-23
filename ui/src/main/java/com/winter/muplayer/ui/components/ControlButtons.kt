@@ -39,6 +39,7 @@ fun PlayPauseButton(
 ) {
     var isPressed by remember { mutableStateOf(false) }
     val scale = remember { Animatable(1f) }
+    val burst = rememberParticleBurstState()
 
     LaunchedEffect(isPressed) {
         if (isPressed) {
@@ -52,29 +53,36 @@ fun PlayPauseButton(
         scale.animateTo(1f, animationSpec = spring(dampingRatio = 0.5f))
     }
 
-    IconButton(
-        onClick = {
-            isPressed = true
-            if (isPlaying) onPause() else onPlay()
-        },
-        modifier = Modifier
-            .size(72.dp)
-            .scale(scale.value)
-            .background(color = containerColor, shape = CircleShape),
+    ParticleBurstBox(
+        state = burst,
+        modifier = Modifier.size(72.dp),
+        color = iconTint,
     ) {
-        if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(32.dp),
-                color = iconTint,
-                strokeWidth = 3.dp,
-            )
-        } else {
-            Icon(
-                painter = if (isPlaying) painterResource(R.drawable.ic_pause) else painterResource(R.drawable.ic_play),
-                contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
-                modifier = Modifier.size(40.dp),
-                tint = iconTint,
-            )
+        IconButton(
+            onClick = {
+                isPressed = true
+                burst.burst()
+                if (isPlaying) onPause() else onPlay()
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .scale(scale.value)
+                .background(color = containerColor, shape = CircleShape),
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(32.dp),
+                    color = iconTint,
+                    strokeWidth = 3.dp,
+                )
+            } else {
+                Icon(
+                    painter = if (isPlaying) painterResource(R.drawable.ic_pause) else painterResource(R.drawable.ic_play),
+                    contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
+                    modifier = Modifier.size(40.dp),
+                    tint = iconTint,
+                )
+            }
         }
     }
 }
@@ -99,14 +107,31 @@ fun PlayModeButton(
         PlayMode.REPEAT_ALL -> stringResource(R.string.mode_repeat_all)
     }
 
-    IconButton(onClick = onClick) {
-        Icon(painter = icon, contentDescription = label, modifier = Modifier.size(28.dp), tint = tint)
+    val burst = rememberParticleBurstState()
+    ParticleBurstBox(state = burst, color = tint) {
+        IconButton(
+            onClick = {
+                burst.burst()
+                onClick()
+            },
+        ) {
+            Icon(painter = icon, contentDescription = label, modifier = Modifier.size(28.dp), tint = tint)
+        }
     }
 }
 
 @Composable
 fun ControlButton(icon: Painter, onClick: () -> Unit, size: Dp = 48.dp, tint: Color = MaterialTheme.colorScheme.onSurface) {
-    IconButton(onClick = onClick, modifier = Modifier.size(size)) {
-        Icon(painter = icon, contentDescription = null, modifier = Modifier.size(size * 0.65f), tint = tint)
+    val burst = rememberParticleBurstState()
+    ParticleBurstBox(state = burst, modifier = Modifier.size(size), color = tint) {
+        IconButton(
+            onClick = {
+                burst.burst()
+                onClick()
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Icon(painter = icon, contentDescription = null, modifier = Modifier.size(size * 0.65f), tint = tint)
+        }
     }
 }

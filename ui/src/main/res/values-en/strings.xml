@@ -61,7 +61,6 @@
     <string name="sort_duration">Duration</string>
     <string name="sort_file_size">Size</string>
     <string name="sort_date_added">Date</string>
-    <string name="sort_file_type">Type</string>
 
     <!-- ==================== Settings ==================== -->
     <!-- Section titles -->
@@ -92,6 +91,8 @@
     <string name="adaptive_tint_color">Match Color</string>
     <string name="adaptive_tint_invert">Invert Color</string>
     <string name="adaptive_tint_mono">Black &amp; White</string>
+    <string name="particle_effect">Button Particle Effect</string>
+    <string name="particle_effect_subtitle">Particles burst outward from button center on tap</string>
     <string name="language">Language</string>
     <string name="language_system">System</string>
     <string name="language_zh">中文</string>
@@ -107,6 +108,11 @@
 
     <!-- Storage -->
     <string name="clear_cache">Clear Cache</string>
+    <string name="clear_error_logs">Clear Error Logs</string>
+    <string name="open_error_logs">Open Error Logs Folder</string>
+    <string name="open_logs_failed">Failed to open logs folder</string>
+    <string name="error_logs_cleared">Cleared %d error log(s)</string>
+    <string name="error_logs_none">No error logs</string>
     <string name="cache_size_prefix">Cache: %s</string>
 
     <!-- About -->

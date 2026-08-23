@@ -505,7 +505,6 @@ fun MusicBrowserList(
             1 -> base.sortedBy { it.duration }
             2 -> base.sortedBy { it.fileSize }
             3 -> base.sortedBy { it.dateAdded }
-            4 -> base.sortedBy { it.fileType }
             else -> base.sortedBy { it.title }
         }
         if (state.sortAsc) sorted else sorted.reversed()

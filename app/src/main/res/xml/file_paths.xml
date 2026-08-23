@@ -1,3 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
+    <!-- 错误日志目录（外部存储应用专属目录） -->
+    <external-files-path name="logs" path="logs/" />
+    <!-- 外部目录不可用时的内部回退目录 -->
+    <files-path name="logs_internal" path="logs/" />
 </paths>

@@ -25,8 +25,9 @@ class MusicBrowserState(
     var searchQuery by mutableStateOf("")
     var selectedCategory by mutableStateOf(MusicCategory.ALL)
 
-    private val _sortField = mutableIntStateOf(settings?.sortField ?: 0)
-    /** 排序字段：0=名称 1=时长 2=大小 3=日期 4=类型（写入 SettingsManager 持久化） */
+    // 旧版本持久化的值可能为 4（“类型”排序项已移除），读取时收敛到有效范围
+    private val _sortField = mutableIntStateOf((settings?.sortField ?: 0).coerceIn(0, 3))
+    /** 排序字段：0=名称 1=时长 2=大小 3=日期（写入 SettingsManager 持久化） */
     var sortField: Int
         get() = _sortField.intValue
         set(value) {

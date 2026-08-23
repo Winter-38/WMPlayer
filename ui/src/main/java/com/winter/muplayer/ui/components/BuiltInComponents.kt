@@ -11,7 +11,9 @@ import com.winter.muplayer.config.isSlotVertical
 import com.winter.muplayer.config.parseCssColor
 import com.winter.muplayer.config.parseCssDp
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.aspectRatio
@@ -29,7 +31,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -102,8 +104,16 @@ fun registerBuiltInComponents() {
         "setting-button" to { SettingButton() },
         "tab-bar" to { TabBar() },
         "sort" to { Sort() },
+        "track-count" to { TrackCountSummary() },
         "playlist" to { Playlist() },
         "playbar" to { PlayBar() },
+        // 迷你播放栏细分组件（pb-* 系列，可单独在 JSON 中引用）
+        "pb-backdrop" to { PbBackdrop() },
+        "pb-cover" to { PbCoverComponent() },
+        "pb-title" to { PbTitleComponent() },
+        "pb-subtitle" to { PbSubtitleComponent() },
+        "pb-track-info" to { PbTrackInfoComponent() },
+        "pb-controls" to { PbControlsComponent() },
         // 通用原子组件
         "icon" to { IconComponent() },
         "icon-button" to { IconButtonComponent() },
@@ -187,13 +197,26 @@ private fun SlotContext.iconButton(iconName: String, action: String) {
         return
     }
 
-    IconButton(onClick = onClick, modifier = Modifier.size(iconSize)) {
-        Icon(
-            painter = painterResource(resId),
-            contentDescription = iconName,
-            modifier = Modifier.fillMaxSize().padding(8.dp),
-            tint = tint,
-        )
+    val burst = rememberParticleBurstState()
+    ParticleBurstBox(
+        state = burst,
+        modifier = Modifier.size(iconSize),
+        color = tint,
+    ) {
+        IconButton(
+            onClick = {
+                burst.burst()
+                onClick()
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Icon(
+                painter = painterResource(resId),
+                contentDescription = iconName,
+                modifier = Modifier.fillMaxSize().padding(8.dp),
+                tint = tint,
+            )
+        }
     }
 }
 
@@ -466,13 +489,26 @@ private fun SlotContext.QueueButtonComponent() {
     val css = LocalComponentCss.current
     val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
     val size = css["size"]?.let { parseCssDp(it) } ?: 32.dp
-    IconButton(onClick = onOpenQueue) {
-        Icon(
-            painter = painterResource(R.drawable.ic_playlist_music),
-            contentDescription = stringResource(R.string.playlist),
-            modifier = Modifier.size(size),
-            tint = tint,
-        )
+    val burst = rememberParticleBurstState()
+    ParticleBurstBox(
+        state = burst,
+        modifier = Modifier.size(size),
+        color = tint,
+    ) {
+        IconButton(
+            onClick = {
+                burst.burst()
+                onOpenQueue()
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_playlist_music),
+                contentDescription = stringResource(R.string.playlist),
+                modifier = Modifier.size(size),
+                tint = tint,
+            )
+        }
     }
 }
 
@@ -525,9 +561,13 @@ private fun SlotContext.TabBar() {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             MusicCategory.entries.forEach { category ->
+                val (burst, burstModifier) = rememberParticleBurstEffect(color = MaterialTheme.colorScheme.primary)
                 FilterChip(
                     selected = state.selectedCategory == category,
-                    onClick = { state.selectedCategory = category },
+                    onClick = {
+                        burst.burst()
+                        state.selectedCategory = category
+                    },
                     label = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val icon = when (category) {
@@ -540,7 +580,7 @@ private fun SlotContext.TabBar() {
                             Text(category.displayName())
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().then(burstModifier),
                 )
             }
         }
@@ -551,9 +591,14 @@ private fun SlotContext.TabBar() {
             modifier = Modifier.fillMaxWidth()
         ) {
             MusicCategory.entries.forEach { category ->
+                val (burst, burstModifier) = rememberParticleBurstEffect(color = MaterialTheme.colorScheme.primary)
                 Tab(
                     selected = state.selectedCategory == category,
-                    onClick = { state.selectedCategory = category },
+                    onClick = {
+                        burst.burst()
+                        state.selectedCategory = category
+                    },
+                    modifier = burstModifier,
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val icon = when (category) {
@@ -578,6 +623,32 @@ private fun SlotContext.TabBar() {
 
 // ==================== sort ====================
 
+/**
+ * 曲目统计文本：根据当前分类显示“共 X 首歌曲 / 共 X 位歌手 / 共 X 张专辑”。
+ * 独立组件，可在 JSON 布局中单独引用（id: track-count）。
+ */
+@Composable
+private fun SlotContext.TrackCountSummary(modifier: Modifier = Modifier) {
+    val state = LocalBrowserState.current
+    val summaryText = when (state.selectedCategory) {
+        MusicCategory.ALL -> stringResource(R.string.track_count, state.tracks.size)
+        MusicCategory.ARTIST -> {
+            val groups = state.tracks.groupBy { it.artist.ifBlank { stringResource(R.string.unknown_artist) } }
+            stringResource(R.string.artist_count, groups.size)
+        }
+        MusicCategory.ALBUM -> {
+            val groups = state.tracks.groupBy { it.album.ifBlank { stringResource(R.string.unknown_album) } }
+            stringResource(R.string.album_count, groups.size)
+        }
+    }
+    Text(
+        text = summaryText,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+    )
+}
+
 @Composable
 private fun SlotContext.Sort() {
     val state = LocalBrowserState.current
@@ -585,39 +656,48 @@ private fun SlotContext.Sort() {
         stringResource(R.string.sort_name),
         stringResource(R.string.sort_duration),
         stringResource(R.string.sort_file_size),
-        stringResource(R.string.sort_date_added),
-        stringResource(R.string.sort_file_type)
+        stringResource(R.string.sort_date_added)
     )
     var showSortMenu by remember { mutableStateOf(false) }
+    val (sortBurst, sortBurstModifier) = rememberParticleBurstEffect(color = MaterialTheme.colorScheme.primary)
     Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val summaryText = when (state.selectedCategory) {
-            MusicCategory.ALL -> stringResource(R.string.track_count, state.tracks.size)
-            MusicCategory.ARTIST -> {
-                val groups = state.tracks.groupBy { it.artist.ifBlank { stringResource(com.winter.muplayer.ui.R.string.unknown_artist) } }
-                stringResource(R.string.artist_count, groups.size)
-            }
-            MusicCategory.ALBUM -> {
-                val groups = state.tracks.groupBy { it.album.ifBlank { stringResource(com.winter.muplayer.ui.R.string.unknown_album) } }
-                stringResource(R.string.album_count, groups.size)
-            }
-        }
-        Text(
-            text = summaryText,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f)
-        )
+        TrackCountSummary(modifier = Modifier.weight(1f))
         Box {
-            Text(
-                text = stringResource(R.string.sort_label),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.clickable { showSortMenu = true }
-            )
+            // 紧凑 M3 风格排序触发器：Surface 胶囊 + outline 边框 + 下拉箭头。
+            // 注意：不用 Surface(onClick) 重载——它内部会强制 minimumInteractiveComponentSize
+            // （48dp 触摸目标）撑高容器，导致 vertical padding 调整不生效；
+            // 改为普通 Surface（纯装饰）+ 内部 Row 挂 clickable，高度完全由内容决定。
+            Surface(
+                shape = FilterChipDefaults.shape,
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .then(sortBurstModifier)
+                        .clickable {
+                            sortBurst.burst()
+                            showSortMenu = true
+                        }
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = sortNames.getOrElse(state.sortField) { sortNames[0] },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        painter = painterResource(R.drawable.ic_arrow_drop_down),
+                        contentDescription = stringResource(R.string.sort_label),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
             DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                 sortNames.forEachIndexed { i, name ->
                     DropdownMenuItem(
@@ -793,11 +873,183 @@ private fun SlotContext.Playlist() {
     }
 }
 
+// ══════════════════════════════════════════════
+// 迷你播放栏细分组件（pb-* 系列）
+// 与全屏 fp-* 同模式：可单独在 JSON 中引用，也可由 playbar 聚合组装
+// ══════════════════════════════════════════════
+
+/** 封面缩略图（私有实现） */
+@Composable
+private fun SlotContext.PbCover(size: Dp) {
+    AlbumThumb(albumTrack = playerState.currentTrack, coverCache = coverCache, size = size)
+}
+
+/** 歌曲标题（私有实现）：过长时走马灯滚动显示 */
+@Composable
+private fun SlotContext.PbTitle(modifier: Modifier = Modifier) {
+    Text(
+        text = playerState.currentTrack?.title
+            ?: stringResource(com.winter.muplayer.ui.R.string.not_playing),
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Clip,
+        modifier = modifier.basicMarquee(
+            iterations = Int.MAX_VALUE,
+            animationMode = MarqueeAnimationMode.Immediately,
+            spacing = MarqueeSpacing(0.dp),
+            repeatDelayMillis = 1000,
+            velocity = 40.dp,
+        ),
+    )
+}
+
+/** 歌手名（私有实现）：无曲目时不显示 */
+@Composable
+private fun SlotContext.PbSubtitle(
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
+) {
+    val currentTrack = playerState.currentTrack
+    if (currentTrack != null) {
+        Text(
+            text = currentTrack.artist,
+            style = style,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = modifier,
+        )
+    }
+}
+
+/** 歌曲信息组合（标题 + 歌手） */
+@Composable
+private fun SlotContext.PbTrackInfo(modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.Center) {
+        PbTitle()
+        PbSubtitle()
+    }
+}
+
+/** 迷你播放栏控制按钮行（上一首 / 播放暂停 / 下一首 / 队列） */
+@Composable
+private fun SlotContext.PbControls(
+    expanded: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val isPlaying = playerState.state == PlayerState.PLAYING
+    Row(
+        modifier = modifier.then(if (expanded) Modifier.fillMaxWidth() else Modifier),
+        horizontalArrangement = if (expanded) Arrangement.SpaceEvenly else Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ControlButton(
+            icon = painterResource(R.drawable.ic_skip_previous),
+            onClick = onPrevious,
+            size = 36.dp,
+            tint = MaterialTheme.colorScheme.onSurface,
+        )
+        Surface(
+            modifier = Modifier.size(48.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.primary,
+            tonalElevation = 2.dp,
+        ) {
+            val burst = rememberParticleBurstState()
+            ParticleBurstBox(state = burst, modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.onPrimary) {
+                IconButton(
+                    onClick = {
+                        burst.burst()
+                        if (isPlaying) onPause() else onPlay()
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Icon(
+                        painter = if (isPlaying) painterResource(R.drawable.ic_pause)
+                        else painterResource(R.drawable.ic_play),
+                        contentDescription = if (isPlaying) stringResource(R.string.pause)
+                        else stringResource(R.string.play),
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
+        }
+        ControlButton(
+            icon = painterResource(R.drawable.ic_skip_next),
+            onClick = onNext,
+            size = 36.dp,
+            tint = MaterialTheme.colorScheme.onSurface,
+        )
+        val burstQueue = rememberParticleBurstState()
+        ParticleBurstBox(state = burstQueue, color = MaterialTheme.colorScheme.onSurface) {
+            IconButton(
+                onClick = {
+                    burstQueue.burst()
+                    onOpenQueue()
+                },
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_playlist_music),
+                    contentDescription = stringResource(R.string.playlist),
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(26.dp),
+                )
+            }
+        }
+    }
+}
+
+// ── 注册组件包装（JSON 中可用 id 引用） ──
+
+/** pb-cover：迷你播放栏封面缩略图。CSS 支持：size */
+@Composable
+private fun SlotContext.PbCoverComponent() {
+    val css = LocalComponentCss.current
+    val size = css["size"]?.let { parseCssDp(it) } ?: 56.dp
+    PbCover(size)
+}
+
+/** pb-title：迷你播放栏歌曲标题 */
+@Composable
+private fun SlotContext.PbTitleComponent() {
+    PbTitle()
+}
+
+/** pb-subtitle：迷你播放栏歌手名 */
+@Composable
+private fun SlotContext.PbSubtitleComponent() {
+    PbSubtitle()
+}
+
+/** pb-track-info：标题 + 歌手组合（横向布局的中间弹性列） */
+@Composable
+private fun SlotContext.PbTrackInfoComponent() {
+    PbTrackInfo()
+}
+
+/** pb-controls：迷你播放栏控制按钮行 */
+@Composable
+private fun SlotContext.PbControlsComponent() {
+    PbControls(expanded = true)
+}
+
+/** pb-backdrop：迷你播放栏容器背景层（卡片样式，整卡可点击打开全屏播放器） */
+@Composable
+private fun SlotContext.PbBackdrop() {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        shape = RoundedCornerShape(20.dp),
+        tonalElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        onClick = onOpenFullPlayer,
+    ) {}
+}
+
+/** 迷你播放栏聚合容器（默认布局）：Surface 卡片 + 按父 slot 方向组装 pb-* 细分组件 */
 @Composable
 private fun SlotContext.PlayBar() {
-    val currentTrack = playerState.currentTrack
-    val isPlaying = playerState.state == PlayerState.PLAYING
-
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -815,162 +1067,29 @@ private fun SlotContext.PlayBar() {
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // 封面缩略图
-                cover(80.dp)
-
-                // 歌曲信息
-                Text(
-                    text = currentTrack?.title ?: stringResource(com.winter.muplayer.ui.R.string.not_playing),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .padding(top = 8.dp)
-                        .basicMarquee(
-                            iterations = Int.MAX_VALUE,
-                            animationMode = MarqueeAnimationMode.Immediately,
-                            spacing = MarqueeSpacing(0.dp),
-                            repeatDelayMillis = 1000,
-                            velocity = 40.dp,
-                        ),
-                )
-                if (currentTrack != null) {
-                    Text(
-                        text = currentTrack.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                // 控制按钮
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = onPrevious) {
-                        Icon(painterResource(R.drawable.ic_skip_previous), contentDescription = stringResource(R.string.previous), tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(36.dp))
-                    }
-                    Surface(
-                        modifier = Modifier.size(48.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        tonalElevation = 2.dp,
-                    ) {
-                        IconButton(onClick = { if (isPlaying) onPause() else onPlay() }, modifier = Modifier.fillMaxSize()) {
-                            Icon(painter = if (isPlaying) painterResource(R.drawable.ic_pause) else painterResource(R.drawable.ic_play),
-                                contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
-                                tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(28.dp))
-                        }
-                    }
-                    IconButton(onClick = onNext) {
-                        Icon(painterResource(R.drawable.ic_skip_next), contentDescription = stringResource(R.string.next), tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(36.dp))
-                    }
-                    IconButton(onClick = onOpenQueue) {
-                        Icon(painterResource(R.drawable.ic_playlist_music), contentDescription = stringResource(R.string.playlist), tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(26.dp))
-                    }
-                }
+                PbCover(80.dp)
+                PbTitle(modifier = Modifier.padding(top = 8.dp))
+                PbSubtitle(style = MaterialTheme.typography.bodySmall)
+                PbControls(expanded = true, modifier = Modifier.padding(top = 12.dp))
             }
             return@Surface
         }
 
+        // 横向父 slot → 封面 + 信息（弹性中间列） + 控制按钮
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 封面缩略图
-            cover(56.dp)
-
-            // 封面与歌曲信息的间隙
+            PbCover(56.dp)
             Spacer(Modifier.width(12.dp))
-
-            // 歌曲信息
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = currentTrack?.title
-                        ?: stringResource(com.winter.muplayer.ui.R.string.not_playing),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.basicMarquee(
-                        iterations = Int.MAX_VALUE,
-                        animationMode = MarqueeAnimationMode.Immediately,
-                        spacing = MarqueeSpacing(0.dp),
-                        repeatDelayMillis = 1000,
-                        velocity = 40.dp,
-                    ),
-                )
-                if (currentTrack != null) {
-                    Text(
-                        text = currentTrack.artist,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-                }
-            }
-
-            // 上一首
-            IconButton(onClick = onPrevious) {
-                Icon(
-                    painterResource(R.drawable.ic_skip_previous),
-                    contentDescription = stringResource(R.string.previous),
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(36.dp),
-                )
-            }
-
-            // 播放/暂停
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.primary,
-                tonalElevation = 2.dp,
-            ) {
-                IconButton(
-                    onClick = { if (isPlaying) onPause() else onPlay() },
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    Icon(
-                        painter = if (isPlaying) painterResource(R.drawable.ic_pause)
-                        else painterResource(R.drawable.ic_play),
-                        contentDescription = if (isPlaying) stringResource(R.string.pause)
-                        else stringResource(R.string.play),
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-            }
-
-            // 下一首
-            IconButton(onClick = onNext) {
-                Icon(
-                    painterResource(R.drawable.ic_skip_next),
-                    contentDescription = stringResource(R.string.next),
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(36.dp),
-                )
-            }
-
-            // 播放列表按钮
-            IconButton(onClick = onOpenQueue) {
-                Icon(
-                    painterResource(R.drawable.ic_playlist_music),
-                    contentDescription = stringResource(R.string.playlist),
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(26.dp),
-                )
-            }
+            PbTrackInfo(modifier = Modifier.weight(1f))
+            PbControls(expanded = false)
         }
     }
 }
+
 
 // ══════════════════════════════════════════════
 // 全屏播放器组件
@@ -1356,10 +1475,18 @@ private fun SlotContext.ControlsRow() {
                 containerColor = tint.copy(alpha = 0.2f), iconTint = tint,
             )
             ControlButton(icon = painterResource(R.drawable.ic_skip_next), onClick = onNext, size = 40.dp, tint = tint)
-            IconButton(onClick = onOpenQueue) {
-                Icon(painterResource(R.drawable.ic_playlist_music),
-                    contentDescription = stringResource(com.winter.muplayer.ui.R.string.playlist),
-                    modifier = Modifier.size(28.dp), tint = tint)
+            val burstQueueV = rememberParticleBurstState()
+            ParticleBurstBox(state = burstQueueV, color = tint) {
+                IconButton(
+                    onClick = {
+                        burstQueueV.burst()
+                        onOpenQueue()
+                    },
+                ) {
+                    Icon(painterResource(R.drawable.ic_playlist_music),
+                        contentDescription = stringResource(com.winter.muplayer.ui.R.string.playlist),
+                        modifier = Modifier.size(28.dp), tint = tint)
+                }
             }
         }
         return
@@ -1411,13 +1538,21 @@ private fun SlotContext.ControlsRow() {
 
             // 播放列表
             if (w >= 200.dp) {
-                IconButton(onClick = onOpenQueue) {
-                    Icon(
-                        painterResource(R.drawable.ic_playlist_music),
-                        contentDescription = stringResource(com.winter.muplayer.ui.R.string.playlist),
-                        modifier = Modifier.size(32.dp),
-                        tint = tint,
-                    )
+                val burstQueueH = rememberParticleBurstState()
+                ParticleBurstBox(state = burstQueueH, color = tint) {
+                    IconButton(
+                        onClick = {
+                            burstQueueH.burst()
+                            onOpenQueue()
+                        },
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_playlist_music),
+                            contentDescription = stringResource(com.winter.muplayer.ui.R.string.playlist),
+                            modifier = Modifier.size(32.dp),
+                            tint = tint,
+                        )
+                    }
                 }
             }
         }

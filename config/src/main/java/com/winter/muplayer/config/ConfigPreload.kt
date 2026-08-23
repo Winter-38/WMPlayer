@@ -30,13 +30,18 @@ object ConfigPreload {
      * 同步尝试加载缓存。必须在 setContent 之前调用。
      * true = 缓存命中，首帧即用真实配置。
      * false = 没有缓存，需要 [start] 异步加载。
+     *
+     * 策略：启动默认直接读缓存（不因布局文件修改时间失效），
+     * 缓存仅在“重新读取配置”或缓存缺失时重建。
      */
     fun loadIfCached(context: Context): Boolean {
-        val configDir = configDir(context)
-        if (!BinaryCache.isFresh(configDir)) return false
+        // 清理旧版本缓存位置（files/config/layout.cache）残留
+        try {
+            File(configDir(context), "layout.cache").delete()
+        } catch (_: Exception) { }
 
         val t0 = System.nanoTime()
-        val cached = BinaryCache.tryRead(configDir) ?: return false
+        val cached = BinaryCache.tryRead(cacheDir(context)) ?: return false
 
         val elapsedMs = (System.nanoTime() - t0) / 1_000_000.0
         config = cached.first
@@ -64,21 +69,19 @@ object ConfigPreload {
         }
     }
 
-    /** 同步加载配置到缓存（慢速路径）。 */
+    /** 同步加载配置到缓存（慢速路径，仅在缓存缺失时由 [start] 触发）。 */
     private fun load(context: Context) {
         val t0 = System.nanoTime()
         val configDir = configDir(context)
 
         // ── 1. 优先尝试二进制缓存（可能在 start→load 之间已被写入） ──
-        if (BinaryCache.isFresh(configDir)) {
-            val cached = BinaryCache.tryRead(configDir)
-            if (cached != null) {
-                config = cached.first
-                css = cached.second
-                val ms = (System.nanoTime() - t0) / 1_000_000.0
-                Log.d(TAG, "后台缓存命中，%.2fms".format(ms))
-                return
-            }
+        val cached = BinaryCache.tryRead(cacheDir(context))
+        if (cached != null) {
+            config = cached.first
+            css = cached.second
+            val ms = (System.nanoTime() - t0) / 1_000_000.0
+            Log.d(TAG, "后台缓存命中，%.2fms".format(ms))
+            return
         }
 
         // ── 2. 缓存不存在/已过期 → 解析 JSON + CSS ──
@@ -100,10 +103,17 @@ object ConfigPreload {
         // ── 3. 写二进制缓存（下次启动走快速路径） ──
         try {
             val t1 = System.nanoTime()
-            BinaryCache.write(configDir, parsedLayout, cssRules)
+            BinaryCache.write(cacheDir(context), parsedLayout, cssRules)
             val writeMs = (System.nanoTime() - t1) / 1_000_000.0
             Log.d(TAG, "缓存写入完成，%.2fms".format(writeMs))
         } catch (_: Exception) { }
+    }
+
+    /** 缓存目录：应用专属外部缓存目录（Android/data/<package>/cache，与 files 同级）；不可用时回退内部 cacheDir */
+    private fun cacheDir(context: Context): File {
+        val extCache = context.getExternalCacheDir()
+        return if (extCache != null) extCache
+        else File(context.cacheDir, "config-cache")
     }
 
     private fun configDir(context: Context): File {

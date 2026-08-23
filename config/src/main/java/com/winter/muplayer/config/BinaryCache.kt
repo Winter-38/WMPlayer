@@ -12,7 +12,11 @@ import java.security.MessageDigest
  * 安全：手写二进制格式，只读写 String/Int/Boolean，无反射无代码执行路径。
  * 文件末尾附带 SHA-256 校验，防外部篡改。
  *
- * 路径：<configDir>/layout.cache
+ * 路径：<cacheDir>/layout.cache —— cacheDir 为应用专属缓存目录
+ * （{外部存储}/Android/data/<package>/cache，与 files 同级）
+ *
+ * 缓存策略：启动默认直接读缓存；缓存仅在“重新读取配置”或缓存缺失时重建，
+ * 不因布局文件修改时间而失效（用户手动读取布局文件后才重新解析）。
  */
 object BinaryCache {
 
@@ -31,11 +35,12 @@ object BinaryCache {
 
     /**
      * 写入编译缓存。同时写 SHA-256 校验到文件末尾。
+     * @param cacheDir 缓存目录（应用专属 cache 目录，与 files 同级）
      */
-    fun write(configDir: File, layout: ComponentLayout, css: CssRuleTable) {
+    fun write(cacheDir: File, layout: ComponentLayout, css: CssRuleTable) {
         val bytes = toBytes(layout, css)
         val hash = MessageDigest.getInstance("SHA-256").digest(bytes)
-        val cacheFile = File(configDir, CACHE_FILENAME)
+        val cacheFile = File(cacheDir, CACHE_FILENAME)
         cacheFile.parentFile?.mkdirs()
         cacheFile.writeBytes(bytes + hash)
     }
@@ -45,9 +50,10 @@ object BinaryCache {
      * - 文件不存在 → null
      * - SHA-256 校验失败 → 删除缓存 + 返回 null（可能被篡改或损坏）
      * - 校验通过 → 返回 (ComponentLayout, CssRuleTable)
+     * @param cacheDir 缓存目录
      */
-    fun tryRead(configDir: File): Pair<ComponentLayout, CssRuleTable>? {
-        val cacheFile = File(configDir, CACHE_FILENAME)
+    fun tryRead(cacheDir: File): Pair<ComponentLayout, CssRuleTable>? {
+        val cacheFile = File(cacheDir, CACHE_FILENAME)
         if (!cacheFile.isFile) return null
 
         val allBytes = try { cacheFile.readBytes() } catch (_: Exception) { return null }
@@ -69,25 +75,6 @@ object BinaryCache {
             cacheFile.delete()
             null
         }
-    }
-
-    /**
-     * 判断缓存是否最新的（比所有源文件都新）。
-     */
-    fun isFresh(configDir: File): Boolean {
-        val cacheFile = File(configDir, CACHE_FILENAME)
-        if (!cacheFile.isFile) return false
-        val cacheTime = cacheFile.lastModified()
-        val files = configDir.listFiles() ?: return false
-        // 缓存必须比所有 .json 和 .css 文件都新
-        for (f in files) {
-            if (!f.isFile) continue
-            val ext = f.extension
-            if (ext == "json" || ext == "css") {
-                if (f.lastModified() > cacheTime) return false
-            }
-        }
-        return true
     }
 
     // ── 序列化 ──

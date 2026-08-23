@@ -12,6 +12,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
@@ -70,6 +74,10 @@ import com.winter.muplayer.config.ComponentEntry
 import com.winter.muplayer.config.CssRuleTable
 import com.winter.muplayer.config.StyleConfigLoader
 import com.winter.muplayer.ui.components.registerBuiltInComponents
+import com.winter.muplayer.ui.components.ParticleBurstHost
+import com.winter.muplayer.ui.components.ParticleBurstHostState
+import com.winter.muplayer.ui.components.LocalParticleBurstHost
+import com.winter.muplayer.ui.components.LocalParticleBurstEnabled
 import com.winter.muplayer.ui.R
 import com.winter.muplayer.ui.browser.TrackRow
 import com.winter.muplayer.ui.components.getAlbumArtUri
@@ -240,7 +248,17 @@ class MusicUIActivity : ComponentActivity() {
             var currentDynamicColor by remember { mutableStateOf(settings.dynamicColorEnabled) }
             var currentBlurBg by remember { mutableStateOf(settings.blurBackground) }
             var currentAdaptiveTintStyle by remember { mutableStateOf(settings.adaptiveTintStyle) }
+            var currentParticleBurst by remember { mutableStateOf(settings.particleEffectEnabled) }
 
+            // 全局粒子宿主：在根部创建并提供给 CompositionLocal，
+            // 所有按钮（ParticleBurstBox）才能读到并发射粒子
+            val scope = rememberCoroutineScope()
+            val particleBurstHost = remember { ParticleBurstHostState(scope) }
+
+            CompositionLocalProvider(
+                LocalParticleBurstHost provides particleBurstHost,
+                LocalParticleBurstEnabled provides currentParticleBurst,
+            ) {
             AppTheme(
                 darkTheme = when (currentThemeMode) {
                     com.winter.muplayer.core.SettingsManager.ThemeMode.SYSTEM ->
@@ -265,9 +283,13 @@ class MusicUIActivity : ComponentActivity() {
                                 currentDynamicColor = settings.dynamicColorEnabled
                                 currentBlurBg = settings.blurBackground
                                 currentAdaptiveTintStyle = settings.adaptiveTintStyle
+                                currentParticleBurst = settings.particleEffectEnabled
                             })
+                        // 全局粒子层：挂载在最上层，粒子可遮挡其他按钮（仅视觉）
+                        ParticleBurstHost(hostState = particleBurstHost, modifier = Modifier.matchParentSize())
                     }
                 }
+            }
             }
         }
     }
@@ -427,6 +449,21 @@ fun MusicPlayerApp(
                     }
                 ),
                 onSettingChanged = onSettingChanged,
+                onOpenLogsDir = {
+                    openLogsDir(context)
+                },
+                onClearErrorLogs = {
+                    val count = com.winter.muplayer.core.CrashLogManager.clearLogs(context)
+                    Toast.makeText(
+                        context,
+                        if (count > 0) {
+                            context.getString(com.winter.muplayer.ui.R.string.error_logs_cleared, count)
+                        } else {
+                            context.getString(com.winter.muplayer.ui.R.string.error_logs_none)
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                },
                 onCrossfadeChange = { ms ->
                     (musicPlayerCore.engine as? com.winter.muplayer.core.engine.ExoPlayerEngine)
                         ?.setCrossfadeDuration(ms)
@@ -1461,6 +1498,54 @@ private fun computeAdaptiveTint(bitmap: Bitmap, style: SettingsManager.AdaptiveT
  * Android 13+ 使用 [android.app.LocaleManager] / AppCompatDelegate，
  * 低版本使用 [android.content.res.Configuration.setLocale]。
  */
+private fun openLogsDir(context: android.content.Context) {
+    val dir = com.winter.muplayer.core.CrashLogManager.logDir(context)
+    if (!dir.exists()) dir.mkdirs()
+
+    // 首选：系统 DocumentsUI 定位目录（content://...externalstorage.documents/document/...）
+    val docUri = DocumentsContract.buildDocumentUri(
+        "com.android.externalstorage.documents",
+        "primary:Android/data/${context.packageName}/files/logs",
+    )
+    val dirOpened = try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(docUri, "vnd.android.document/directory")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            },
+        )
+        true
+    } catch (_: Exception) {
+        false
+    }
+    if (dirOpened) return
+
+    // 兜底：FileProvider 打开最新日志文件（部分系统文件管理器定位不到 Android/data 目录时）
+    val latest = com.winter.muplayer.core.CrashLogManager.latestLogFile(context)
+    if (latest != null) {
+        try {
+            val uri: Uri = FileProvider.getUriForFile(
+                context, "${context.packageName}.fileprovider", latest,
+            )
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "text/plain")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                },
+            )
+            return
+        } catch (_: Exception) {
+            // 落到下方 Toast
+        }
+    }
+
+    Toast.makeText(
+        context,
+        com.winter.muplayer.ui.R.string.open_logs_failed,
+        Toast.LENGTH_SHORT,
+    ).show()
+}
+
 private fun applyAppLanguage(
     context: android.content.Context,
     language: com.winter.muplayer.core.SettingsManager.AppLanguage

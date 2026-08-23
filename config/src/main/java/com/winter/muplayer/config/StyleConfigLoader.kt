@@ -51,16 +51,34 @@ class StyleConfigLoader(private val context: Context) {
     }
 
     /**
-     * 写入默认配置文件（如需）+ 从磁盘重载。
+     * 写入默认配置文件（如需）+ 加载布局。
      * 通常在 LaunchedEffect 中调用，用于应用启动后的完整初始化。
+     *
+     * 策略：启动默认直接读缓存（[ConfigPreload] 已加载则直接用，不碰布局文件）；
+     * 仅当缓存缺失（首次安装 / 系统清理了 cache 目录）时解析一次布局文件并写缓存。
+     * 布局文件之后只在用户手动“重新读取配置”时重新解析。
      */
     fun initialize() {
         writeDefaultsIfMissing()
-        reload()
+
+        // 缓存已在启动预加载中命中 → 直接用，不解析布局文件
+        if (ConfigPreload.config != null) return
+
+        // 缓存未命中：再试一次（可能刚被后台 ConfigPreload 写入），仍无则解析一次并写缓存
+        val cached = BinaryCache.tryRead(cacheDir())
+        if (cached != null) {
+            ConfigPreload.config = cached.first
+            ConfigPreload.css = cached.second
+            _config.value = cached.first
+            _cssRules.value = cached.second
+        } else {
+            reload()
+        }
     }
 
     /**
-     * 从磁盘重新加载 JSON + CSS 配置文件。
+     * 从磁盘重新解析 JSON + CSS 配置文件并写缓存。
+     * 仅在用户手动“重新读取配置”或初始化兜底时调用；启动默认只读缓存。
      * `main.json` 是唯一的入口点，没有它则回退硬编码默认值。
      * 支持 `"include": ["relative/path.json"]` 显式引用其他文件。
      * 自动加载 `config/` 下所有 .css 文件。
@@ -68,8 +86,8 @@ class StyleConfigLoader(private val context: Context) {
     fun reload() {
         val mainFile = File(configDir, "main.json")
         if (!mainFile.isFile) {
-            _config.value = ComponentLayout()
-            _cssRules.value = loadCssFiles()
+            // main.json 缺失（配置目录被清空等）→ 回退初始默认样式
+            fallbackToDefaults()
             return
         }
 
@@ -79,12 +97,44 @@ class StyleConfigLoader(private val context: Context) {
             _config.value = parseConfigObject(merged)
 
             _cssRules.value = loadCssFiles()
+
+            // 解析成功 → 写缓存，下次启动直接读取
+            BinaryCache.write(cacheDir(), _config.value, _cssRules.value)
         } catch (e: Exception) {
             android.util.Log.w("StyleConfig", "Failed to parse config: ${e.message}")
-            android.widget.Toast.makeText(context, "配置解析失败: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
-            _config.value = ComponentLayout()
-            _cssRules.value = CssRuleTable()
+            // 解析失败也落盘错误日志（logs/error_*.log），便于事后排查
+            com.winter.muplayer.core.CrashLogManager.writeErrorLog(
+                context, "StyleConfig", "Failed to parse config: ${e.message}", e,
+            )
+            android.widget.Toast.makeText(context, "配置解析失败，已回退默认样式", android.widget.Toast.LENGTH_LONG).show()
+            // 解析失败 → 回退应用内置的初始默认样式，避免残缺配置导致布局一团糟
+            fallbackToDefaults()
         }
+    }
+
+    /**
+     * 回退到应用内置的初始默认配置（与首次启动写入磁盘的模板一致）：
+     * `defaultMainJson()` 解析出的 slot 布局 + `defaultStylesCss()` 解析出的样式。
+     * 双重 try-catch 兜底：最坏情况退化为空默认值，保证界面始终可用。
+     */
+    private fun fallbackToDefaults() {
+        _config.value = try {
+            parseConfigObjectStatic(JSONObject(defaultMainJson()))
+        } catch (_: Exception) {
+            ComponentLayout()
+        }
+        _cssRules.value = try {
+            CssRuleTable(rules = CssParser.parse(defaultStylesCss()))
+        } catch (_: Exception) {
+            CssRuleTable()
+        }
+    }
+
+    /** 缓存目录：应用专属外部缓存目录（Android/data/<package>/cache，与 files 同级）；不可用时回退内部 cacheDir */
+    private fun cacheDir(): File {
+        val extCache = context.getExternalCacheDir()
+        return if (extCache != null) extCache
+        else File(context.cacheDir, "config-cache")
     }
 
     /** 加载 config/ 下所有 .css 文件，按文件名升序合并 */
@@ -176,7 +226,16 @@ class StyleConfigLoader(private val context: Context) {
     },
     {
       "app-bottom": [
-        "playbar"
+        {
+          "name": "pb-backdrop",
+          "children": {
+            "pb-backdrop": [
+              "pb-cover",
+              "pb-track-info",
+              "pb-controls"
+            ]
+          }
+        }
       ]
     }
   ],
@@ -234,11 +293,21 @@ class StyleConfigLoader(private val context: Context) {
 /* 分类标签：竖向 FilterChip 列表（display: row 可切换为顶部 TabRow） */
 #tab-bar { display: row; }
 
-/* ── 底部迷你播放栏 ── */
+/* ── 底部迷你播放栏（pb-* 拆分组合） ── */
 .app-bottom {
   arrange: row;
   weight: 0;
 }
+
+/* pb-backdrop 前景子 slot：水平排列（背景卡片样式由 pb-backdrop 组件自带） */
+.pb-backdrop {
+  arrange: row;
+  gap: 12px;
+  padding: 6px 16px;
+}
+
+#pb-cover { size: 56px; }
+#pb-track-info { weight: 1; }
 
 /* ═══ 全屏播放器 ═══ */
 

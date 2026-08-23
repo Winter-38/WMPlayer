@@ -61,7 +61,6 @@
     <string name="sort_duration">时长</string>
     <string name="sort_file_size">大小</string>
     <string name="sort_date_added">日期</string>
-    <string name="sort_file_type">类型</string>
 
     <!-- ==================== 设置界面 ==================== -->
     <!-- 分区标题 -->
@@ -91,6 +90,8 @@
     <string name="adaptive_tint_color">正色</string>
     <string name="adaptive_tint_invert">反色</string>
     <string name="adaptive_tint_mono">黑白</string>
+    <string name="particle_effect">按钮粒子特效</string>
+    <string name="particle_effect_subtitle">点击按钮时从中心向外扩散粒子</string>
 
     <!-- 音乐扫描 -->
     <string name="auto_scan">启动时自动扫描</string>
@@ -101,6 +102,11 @@
 
     <!-- 存储 -->
     <string name="clear_cache">清除专辑封面缓存</string>
+    <string name="clear_error_logs">清理错误日志</string>
+    <string name="open_error_logs">定位错误日志</string>
+    <string name="open_logs_failed">无法打开日志目录</string>
+    <string name="error_logs_cleared">已清理 %d 个错误日志</string>
+    <string name="error_logs_none">没有错误日志</string>
     <string name="cache_size_prefix">缓存大小：%s</string>
 
     <!-- 语言设置 -->

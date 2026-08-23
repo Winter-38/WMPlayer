@@ -1,6 +1,7 @@
 package com.winter.muplayer.ui.screens
 
 import android.os.Build
+import android.content.pm.PackageManager
 import androidx.compose.foundation.clickable
 import com.winter.muplayer.ui.R
 import androidx.compose.foundation.layout.*
@@ -30,6 +31,8 @@ fun SettingsScreen(
     onRescan: () -> Unit = {},
     onSettingChanged: () -> Unit = {},
     cacheInfo: CacheInfo = CacheInfo(),
+    onOpenLogsDir: () -> Unit = {},
+    onClearErrorLogs: () -> Unit = {},
     onCrossfadeChange: (Int) -> Unit = {},
     onLanguageChange: () -> Unit = {},
     onReloadConfig: () -> Unit = {}
@@ -81,6 +84,7 @@ fun SettingsScreen(
             }
             item { BlurBackgroundSetting(settings, onSettingChanged) }
             item { AdaptiveTintSetting(settings, onSettingChanged) }
+            item { ParticleEffectSetting(settings, onSettingChanged) }
 
             // ========== 音乐扫描 ==========
             item { SectionHeader(stringResource(R.string.section_scan)) }
@@ -111,6 +115,24 @@ fun SettingsScreen(
                     title = stringResource(R.string.clear_cache),
                     subtitle = stringResource(R.string.cache_size_prefix, cacheInfo.formattedSize),
                     onClick = cacheInfo.onClearCache,
+                    showArrow = false
+                )
+            }
+
+            item {
+                SettingsActionItem(
+                    title = stringResource(R.string.clear_error_logs),
+                    subtitle = null,
+                    onClick = onClearErrorLogs,
+                    showArrow = false
+                )
+            }
+
+            item {
+                SettingsActionItem(
+                    title = stringResource(R.string.open_error_logs),
+                    subtitle = null,
+                    onClick = onOpenLogsDir,
                     showArrow = false
                 )
             }
@@ -374,6 +396,17 @@ private fun AdaptiveTintSetting(settings: SettingsManager, onSettingChanged: () 
 }
 
 @Composable
+private fun ParticleEffectSetting(settings: SettingsManager, onSettingChanged: () -> Unit) {
+    var enabled by remember { mutableStateOf(settings.particleEffectEnabled) }
+    SettingsSwitchItem(
+        title = stringResource(R.string.particle_effect),
+        subtitle = stringResource(R.string.particle_effect_subtitle),
+        checked = enabled,
+        onCheckedChange = { enabled = it; settings.particleEffectEnabled = it; onSettingChanged() }
+    )
+}
+
+@Composable
 private fun AutoScanSetting(settings: SettingsManager) {
     var enabled by remember { mutableStateOf(settings.autoScanOnStart) }
     SettingsSwitchItem(
@@ -386,13 +419,29 @@ private fun AutoScanSetting(settings: SettingsManager) {
 
 @Composable
 private fun AboutSection() {
+    val context = LocalContext.current
+    // 版本号从 manifest 读取（packageInfo.versionName），避免硬编码与构建配置漂移
+    val versionName = remember {
+        try {
+            val pm = context.packageManager
+            val info = if (Build.VERSION.SDK_INT >= 33) {
+                pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(context.packageName, 0)
+            }
+            info.versionName ?: "—"
+        } catch (_: Exception) {
+            "—"
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         InfoRow(stringResource(R.string.label_app_name), "WinterMuPlayer")
-        InfoRow(stringResource(R.string.label_version), "0.5.4-SNAPSHOT")
+        InfoRow(stringResource(R.string.label_version), versionName)
         InfoRow(stringResource(R.string.label_package), "com.winter.muplayer")
         InfoRow(stringResource(R.string.label_compile_sdk), "API ${Build.VERSION.SDK_INT}")
         InfoRow(stringResource(R.string.label_device), "${Build.MANUFACTURER} ${Build.MODEL}")
