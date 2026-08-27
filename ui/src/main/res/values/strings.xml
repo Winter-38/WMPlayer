@@ -117,6 +117,28 @@
     <string name="language_en">English</string>
     <string name="app_restart_hint">重启应用后设置完全生效</string>
 
+    <!-- 插件 -->
+    <string name="section_plugins">插件</string>
+    <string name="plugin_manager">插件管理</string>
+    <string name="plugin_manager_subtitle">已安装 %d 个插件</string>
+    <string name="plugin_empty">暂无已安装插件</string>
+    <string name="plugin_type_app">基本插件</string>
+    <string name="plugin_type_component">组件插件</string>
+    <string name="plugin_type_service">服务插件</string>
+    <string name="plugin_loaded">已加载</string>
+    <string name="plugin_not_loaded">未加载</string>
+    <string name="plugin_load">加载</string>
+    <string name="plugin_unload">卸载</string>
+    <string name="plugin_uninstall_title">卸载插件</string>
+    <string name="plugin_uninstall_text">确定卸载「%s」？插件文件与配置将被删除。</string>
+    <string name="plugin_uninstalled">已卸载：%s</string>
+    <string name="plugin_install_local">安装本地插件</string>
+    <string name="plugin_install_local_hint">选择 zip 插件包（内含 plugin.json）</string>
+    <string name="plugin_installed_result">已安装：%1$s（%2$s）</string>
+    <string name="plugin_loaded_ok">已加载</string>
+    <string name="plugin_loaded_fail">加载失败</string>
+    <string name="plugin_install_fail">安装失败：%s</string>
+
     <!-- 关于 -->
     <string name="label_app_name">应用名称</string>
     <string name="label_version">版本号</string>

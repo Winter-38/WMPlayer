@@ -71,6 +71,29 @@
     <string name="section_about">About</string>
     <string name="section_language">Language</string>
 
+    <!-- Plugins -->
+    <string name="section_plugins">Plugins</string>
+    <string name="plugin_manager">Plugins</string>
+    <string name="plugin_manager_subtitle">%d plugin(s) installed</string>
+    <string name="plugin_empty">No plugins installed</string>
+    <string name="plugin_type_app">App</string>
+    <string name="plugin_type_component">Component</string>
+    <string name="plugin_type_service">Service</string>
+    <string name="plugin_loaded">Loaded</string>
+    <string name="plugin_not_loaded">Not loaded</string>
+    <string name="plugin_load">Load</string>
+    <string name="plugin_unload">Unload</string>
+    <string name="plugin_uninstall_title">Uninstall plugin</string>
+    <string name="plugin_uninstall_text">Uninstall "%s"? Its files and config will be deleted.</string>
+    <string name="plugin_uninstalled">Uninstalled: %s</string>
+    <string name="plugin_install_local">Install local plugin</string>
+    <string name="plugin_install_local_hint">Pick a zip plugin package (containing plugin.json)</string>
+    <string name="plugin_installed_result">Installed: %1$s (%2$s)</string>
+    <string name="plugin_loaded_ok">loaded</string>
+    <string name="plugin_loaded_fail">load failed</string>
+    <string name="plugin_install_fail">Install failed: %s</string>
+
+
     <!-- Playback settings -->
     <string name="crossfade">Crossfade</string>
     <string name="crossfade_5s">5s</string>

@@ -73,11 +73,15 @@ import com.winter.muplayer.config.SlotRenderer
 import com.winter.muplayer.config.ComponentEntry
 import com.winter.muplayer.config.CssRuleTable
 import com.winter.muplayer.config.StyleConfigLoader
+import com.winter.muplayer.ui.PluginUiOverlay
 import com.winter.muplayer.ui.components.registerBuiltInComponents
 import com.winter.muplayer.ui.components.ParticleBurstHost
 import com.winter.muplayer.ui.components.ParticleBurstHostState
 import com.winter.muplayer.ui.components.LocalParticleBurstHost
 import com.winter.muplayer.ui.components.LocalParticleBurstEnabled
+import com.winter.muplayer.ui.components.RenderedColorRegistry
+import com.winter.muplayer.ui.components.LocalRenderedColorRegistry
+import com.winter.muplayer.ui.components.globalTapParticles
 import com.winter.muplayer.ui.R
 import com.winter.muplayer.ui.browser.TrackRow
 import com.winter.muplayer.ui.components.getAlbumArtUri
@@ -254,10 +258,13 @@ class MusicUIActivity : ComponentActivity() {
             // 所有按钮（ParticleBurstBox）才能读到并发射粒子
             val scope = rememberCoroutineScope()
             val particleBurstHost = remember { ParticleBurstHostState(scope) }
+            // 渲染色注册表：全局点击粒子据此自动取点击位置的渲染色
+            val renderedColorRegistry = remember { RenderedColorRegistry() }
 
             CompositionLocalProvider(
                 LocalParticleBurstHost provides particleBurstHost,
                 LocalParticleBurstEnabled provides currentParticleBurst,
+                LocalRenderedColorRegistry provides renderedColorRegistry,
             ) {
             AppTheme(
                 darkTheme = when (currentThemeMode) {
@@ -272,7 +279,8 @@ class MusicUIActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Box(Modifier.fillMaxSize()) {
+                    // 全局点击粒子层挂在根 Box：任意位置点击都喷粒子（不消费事件、不拦截点击）
+                    Box(Modifier.fillMaxSize().globalTapParticles(particleBurstHost)) {
                         MusicPlayerApp(
                             musicPlayerCore = musicPlayerCore,
                             hasAudioPermission = audioPermissionGranted.value,
@@ -287,6 +295,9 @@ class MusicUIActivity : ComponentActivity() {
                             })
                         // 全局粒子层：挂载在最上层，粒子可遮挡其他按钮（仅视觉）
                         ParticleBurstHost(hostState = particleBurstHost, modifier = Modifier.matchParentSize())
+
+                        // 插件页面/widget 浮层（最上层）
+                        PluginUiOverlay()
                     }
                 }
             }

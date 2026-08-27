@@ -118,6 +118,7 @@ fun registerBuiltInComponents() {
         "icon" to { IconComponent() },
         "icon-button" to { IconButtonComponent() },
         "text" to { TextComponent() },
+        "rect" to { RectComponent() },
         "spacer" to { Spacer() },
         "cover" to { CoverComponent() },
         "progress-slider" to { ProgressSliderComponent() },
@@ -311,14 +312,16 @@ private fun SlotContext.IconComponent() {
 // ==================== text ====================
  
 /**
- * 通用文本组件 —— 通过 `extra["content"]` 指定显示内容。
+ * 通用文本组件 —— 通过 `extra["content"]` 或 CSS `content` 属性指定显示内容。
  *
  * JSON 示例：
  *   { "text": { "content": "Hello World" } }
  *   { "#text@my-label": { "content": "我的标签" } }
  *
- * CSS 支持： `color` / `font-size` / `font-weight` / `font-style` / `text-align`
- *   #text { color: #ffffff; font-size: 16px; font-weight: bold; }
+ * CSS 支持： `content`（字符串，文本内容）/ `color` / `font-size` / `font-weight` / `font-style` / `text-align`
+ *   #text { content: "Hello"; color: #ffffff; font-size: 16px; font-weight: bold; }
+ *
+ * 内容优先级：bind（运行时状态） > CSS content > JSON content。
  */
 @Composable
 private fun SlotContext.TextComponent() {
@@ -329,7 +332,8 @@ private fun SlotContext.TextComponent() {
     val content = if (bind != null) {
         DataBinding.resolve(bind, this, LocalProgress.current) ?: "(bind:$bind)"
     } else {
-        extra["content"] as? String
+        // CSS content（去引号）优先，回退 JSON content
+        css["content"]?.let { unquoteCssString(it) } ?: extra["content"] as? String
     }
 
     val cssColor = css["color"]?.let { parseCssColor(it) }
@@ -353,6 +357,44 @@ private fun SlotContext.TextComponent() {
         overflow = TextOverflow.Ellipsis,
         maxLines = 3,
     )
+}
+
+/**
+ * 矩形色块组件 —— 纯展示色块（无内容/无手势）。
+ *
+ * JSON 示例：
+ *   { "rect": {} }   /   "rect"
+ *
+ * CSS 支持： `color`（填充色）/ `size`（边长，默认 48px）/ `border-radius`（默认 0，纯矩形）
+ *   #rect-demo { color: #F44336; size: 40px; border-radius: 8px; }
+ */
+@Composable
+private fun SlotContext.RectComponent() {
+    val css = LocalComponentCss.current
+    val fill = css["color"]?.let { parseCssColor(it) }
+        ?: MaterialTheme.colorScheme.surfaceContainerHigh
+    val size = css["size"]?.let { parseCssDp(it) } ?: 48.dp
+    val radius = css["border-radius"]?.let { parseCssDp(it) } ?: 0.dp
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(radius))
+            .background(fill)
+            .renderedColor(fill),
+    )
+}
+
+/** 去除 CSS 字符串值首尾引号（支持单/双引号）。 */
+private fun unquoteCssString(value: String): String {
+    val t = value.trim()
+    if (t.length >= 2) {
+        val first = t.first()
+        val last = t.last()
+        if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+            return t.substring(1, t.length - 1)
+        }
+    }
+    return t
 }
 
 /** 解析 CSS font-weight 值 */
@@ -432,7 +474,9 @@ private fun nextPlayMode(mode: PlayMode): PlayMode = when (mode) {
 @Composable
 private fun SlotContext.PlayPauseComponent() {
     val css = LocalComponentCss.current
-    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    val tint = css["color"]?.let { parseCssColor(it) }
+        ?: adaptiveTint.takeIf { it != Color.Unspecified }
+        ?: MaterialTheme.colorScheme.onSurface
     PlayPauseButton(
         isPlaying = playerState.state == PlayerState.PLAYING,
         isLoading = playerState.state == PlayerState.LOADING,
@@ -447,7 +491,9 @@ private fun SlotContext.PlayPauseComponent() {
 @Composable
 private fun SlotContext.PrevButtonComponent() {
     val css = LocalComponentCss.current
-    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    val tint = css["color"]?.let { parseCssColor(it) }
+        ?: adaptiveTint.takeIf { it != Color.Unspecified }
+        ?: MaterialTheme.colorScheme.onSurface
     val size = css["size"]?.let { parseCssDp(it) } ?: 48.dp
     ControlButton(
         icon = painterResource(R.drawable.ic_skip_previous),
@@ -461,7 +507,9 @@ private fun SlotContext.PrevButtonComponent() {
 @Composable
 private fun SlotContext.NextButtonComponent() {
     val css = LocalComponentCss.current
-    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    val tint = css["color"]?.let { parseCssColor(it) }
+        ?: adaptiveTint.takeIf { it != Color.Unspecified }
+        ?: MaterialTheme.colorScheme.onSurface
     val size = css["size"]?.let { parseCssDp(it) } ?: 48.dp
     ControlButton(
         icon = painterResource(R.drawable.ic_skip_next),
@@ -475,7 +523,9 @@ private fun SlotContext.NextButtonComponent() {
 @Composable
 private fun SlotContext.PlayModeComponent() {
     val css = LocalComponentCss.current
-    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    val tint = css["color"]?.let { parseCssColor(it) }
+        ?: adaptiveTint.takeIf { it != Color.Unspecified }
+        ?: MaterialTheme.colorScheme.onSurface
     PlayModeButton(
         playMode = playMode,
         onClick = { onPlayModeChange(nextPlayMode(playMode)) },
@@ -487,7 +537,9 @@ private fun SlotContext.PlayModeComponent() {
 @Composable
 private fun SlotContext.QueueButtonComponent() {
     val css = LocalComponentCss.current
-    val tint = css["color"]?.let { parseCssColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    val tint = css["color"]?.let { parseCssColor(it) }
+        ?: adaptiveTint.takeIf { it != Color.Unspecified }
+        ?: MaterialTheme.colorScheme.onSurface
     val size = css["size"]?.let { parseCssDp(it) } ?: 32.dp
     val burst = rememberParticleBurstState()
     ParticleBurstBox(

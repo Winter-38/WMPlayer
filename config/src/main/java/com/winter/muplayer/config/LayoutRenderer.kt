@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -70,6 +71,7 @@ fun SlotRenderer(
                         slots = slots, context = context, css = css,
                         customComponents = customComponents, debug = debug,
                         outerArrange = outerArrange,
+                        parentIsColumn = false,
                         crossAxisFill = Modifier::fillMaxHeight,
                         weightFn = { w -> Modifier.weight(w) },
                     )
@@ -80,6 +82,7 @@ fun SlotRenderer(
                         slots = slots, context = context, css = css,
                         customComponents = customComponents, debug = debug,
                         outerArrange = outerArrange,
+                        parentIsColumn = true,
                         crossAxisFill = Modifier::fillMaxWidth,
                         weightFn = { w -> Modifier.weight(w) },
                     )
@@ -102,6 +105,8 @@ private fun SlotRendererBody(
     customComponents: Map<String, Map<String, Any?>>,
     debug: Boolean,
     outerArrange: String?,
+    /** 父容器是否为 Column（垂直排列）：决定 slot 主轴方向，内部容器据此避免在主轴 fillMaxSize 撑满 */
+    parentIsColumn: Boolean,
     crossAxisFill: Modifier.() -> Modifier,
     weightFn: (Float) -> Modifier,
 ) {
@@ -117,15 +122,31 @@ private fun SlotRendererBody(
         val weight = rawWeight ?: 1f
         // weight: 0 时内部 Row/Column 不应 fillMaxWidth/fillMaxHeight，否则会抢走所有空间
         val hasWeight = rawWeight == null || rawWeight > 0f
-        // 内层 Row/Column 始终填充插槽 Box 的交叉轴尺寸。
-        // fillWidth/fillHeight 用于外层 slot 级 weight，不影响内层容器是否填满。
-        val fillHeight = if (arrange == "horizontal" || arrange == "row") hasWeight else true
-        val fillWidth = if (arrange == "horizontal" || arrange == "row") true else hasWeight
+        // 内部内容容器（Row/Column）的填充策略：
+        // - 交叉轴方向（垂直于父容器方向）始终填满（父容器交叉轴尺寸明确）；
+        // - 主轴方向（父容器方向）由 slot 级 weight 决定：weight: 0 → wrap 内容，
+        //   有 weight → 填满（weight 已分配明确尺寸）。
+        // 关键修复：父容器为 Column 且内部为 column、weight:0 的 slot（如插件页 header）
+        // 若无条件 fillMaxHeight，会在 wrapContentHeight 约束下把内部 Column 撑到
+        // 整个剩余高度，把其余 slot 全部挤成 0 高度（色块不可见的根因）。
+        val fillHeight = when {
+            arrange == "horizontal" || arrange == "row" -> hasWeight          // 内部 Row：高度按 weight
+            parentIsColumn -> hasWeight                                         // 内部 Column + 父 Column：高度（主轴）按 weight
+            else -> true                                                        // 内部 Column + 父 Row：高度（交叉轴）填满
+        }
+        val fillWidth = when {
+            arrange == "horizontal" || arrange == "row" -> true                // 内部 Row：宽度填满
+            parentIsColumn -> true                                               // 内部 Column + 父 Column：宽度（交叉轴）填满
+            else -> hasWeight                                                    // 内部 Column + 父 Row：宽度（主轴）按 weight
+        }
         // slot 级 weight 由外层 Row/Column scope 捕获的 weightFn 提供
         val slotMod: Modifier = when {
             rawWeight == null -> weightFn(1f)      // 未设 → 默认平分
             rawWeight > 0f   -> weightFn(rawWeight) // 显式正值 → 按比例
-            else             -> Modifier           // weight: 0 → 包裹内容
+            // weight: 0 → 包裹内容。必须 wrapContentHeight：否则内部容器组件的
+            // fillMaxSize 背景/前景层会吃满外层固定高度约束（如 .main 全屏），
+            // 把迷你播放栏（app-bottom）这类 weight:0 的 slot 撑成整个屏幕。
+            else             -> Modifier.wrapContentHeight()
         }
         val slotBgCss = slotCss["background-color"]?.let { parseCssColor(it) }
 
@@ -223,7 +244,7 @@ private fun SlotRendererBody(
                                         val def = customComponents[entry.id]
                                         if (def != null && def["icon"] is String) {
                                             renderCustomIcon(def, mod)
-                                        } else if (entry.isCustom) {
+                                        } else if (entry.isCustom && !ComponentRegistry.isRegistered(entry.id)) {
                                             android.util.Log.w("SlotRenderer", "Custom component #${entry.id} not defined in JSON — skipping (remove # for native or define it)")
                                         } else {
                                             ComponentRegistry.render(entry.id, mod)
@@ -312,7 +333,7 @@ private fun SlotRendererBody(
                                         val def = customComponents[entry.id]
                                         if (def != null && def["icon"] is String) {
                                             renderCustomIcon(def, mod)
-                                        } else if (entry.isCustom) {
+                                        } else if (entry.isCustom && !ComponentRegistry.isRegistered(entry.id)) {
                                             android.util.Log.w("SlotRenderer", "Custom component #${entry.id} not defined in JSON — skipping (remove # for native or define it)")
                                         } else {
                                             ComponentRegistry.render(entry.id, mod)

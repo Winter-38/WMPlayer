@@ -15,7 +15,6 @@ gradle/wrapper/gradle-wrapper.jar
 /record/
 /app/release/
 /.codewhale-tmp/
-/.deepseek/
 /.device-check/
 /.device-config-backup/
-
+/lua-plugin/

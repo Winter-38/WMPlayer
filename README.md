@@ -51,7 +51,22 @@
   └─ core/engine/     # 播放引擎接口 + ExoPlayer 实现
   └─ core/scanner/    # 本地音乐扫描器
 :model                # 纯数据模型（无 Android 依赖）
+:plugin               # Lua 插件系统（x+1 运行时：高频专用常驻 + 事件驱动共享；预编译字节码缓存 / mmap 虚拟内存 / 后台下载安装 / 协程隔离 / 导出函数 Map / UI 注册体系 / 三类插件（app·component·service））已接入 app（设置页提供插件管理入口：独立管理界面 / 默认界面 / 安装）
 ```
+
+## Lua 插件系统
+
+应用内置基于 LuaJ 的插件模块（`:plugin`），支持安装、加载、事件驱动、高频直调与 UI 注册：
+
+- **x+1 运行时** — 高频插件独占常驻运行时，事件驱动插件共享单一运行时
+- **预编译字节码缓存** — 入口源码编译为 `.ljbc` 字节码（键 = SHA-256 源码），命中时 mmap 虚拟内存按需换入物理内存
+- **后台下载安装** — OkHttp + 协程下载 zip，校验 manifest 后原子解压落盘
+- **协程隔离** — 安装/事件派发均在协程中串行执行，插件间以 Lua coroutine 隔离
+- **导出函数 Map** — 插件导出表快照为函数引用，宿主查表直调
+- **UI 注册体系** — 插件可注册普通/slot 型组件（图标 + 点按/长按/滑动手势，动作可执行函数、唤起界面或 widget）、界面与 widget（布局 JSON 存于 zip 内，格式与 main.json 一致，可引用 app 组件）
+- **插件类别与服务调用** — 插件分 app/component/service 三类（manifest `type` 声明，zip 根目录 `main.json` 为默认界面）；任意插件可经 `wm.services.call` 调用其它插件（含服务插件）的导出函数
+
+详见 [docs/plugin-api.md](docs/plugin-api.md)。
 
 ## UI 自定义
 

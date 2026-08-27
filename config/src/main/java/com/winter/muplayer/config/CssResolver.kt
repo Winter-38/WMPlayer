@@ -12,7 +12,24 @@ package com.winter.muplayer.config
  */
 internal fun resolveComponentCss(entry: ComponentEntry, css: CssRuleTable): Map<String, String> {
     val base = css.rules["#${entry.id}"] ?: css.rules[entry.id] ?: emptyMap()
-    val cid = entry.cid ?: return base
-    val cidRules = css.rules["#${cid}"] ?: return base
-    return base + cidRules
+    val cid = entry.cid
+    val resolved = if (cid != null) {
+        val cidRules = css.rules["#${cid}"] ?: base
+        base + cidRules
+    } else {
+        base
+    }
+    // 组件内联 style（布局 JSON 组件声明里的 "style": {...}）覆盖 CSS 规则，优先级最高
+    val inline = entry.extra["style"]
+    if (inline is org.json.JSONObject) {
+        val map = mutableMapOf<String, String>()
+        val it = inline.keys()
+        while (it.hasNext()) {
+            val k = it.next()
+            val v = inline.opt(k)
+            if (v != null) map[k] = v.toString()
+        }
+        return resolved + map
+    }
+    return resolved
 }

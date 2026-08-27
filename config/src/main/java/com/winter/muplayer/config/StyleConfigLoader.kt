@@ -192,142 +192,109 @@ class StyleConfigLoader(private val context: Context) {
         // ── 以下静态方法同时被 StyleConfigLoader（实例）和 ConfigPreload（后台线程）调用 ──
 
         /**
-         * 默认 main.json 模板（首次启动写入磁盘）——与设备实测配置一致
-         * （来源：手机 Download / App config，两处相同）。
+         * 默认 main.json 模板（首次启动写入磁盘）——回退到上一个 commit 的布局配置
+         * （来源：手机实测配置，playbar 聚合迷你播放栏 + fp-backdrop 背景层容器
+         *   + 命名子 slot fp-space1 / fp-main / fp-space2）。
          *
-         * - main 为数组形式（索引即 slot 渲染顺序）；app-top 左侧有 m-top-spacer
-         * - full-player：fp-backdrop 为 slot 型容器（背景层），children 数组自动包装
-         *   为同名子 slot；main-cover 为命名子 slot（CSS 用 .main-cover 定位）
+         * - main 为对象形式（slot 名 → 组件数组）
+         * - full-player：fp-backdrop 为 slot 型容器（背景层），children 为命名子 slot
+         *   （CSS 用 .fp-space1 / .fp-main / .fp-space2 定位）
          */
         fun defaultMainJson(): String = """
 {
   // ═══════════════════════════════════════════════════
-  // WMPlayer 默认布局（与设备实测配置一致）
-  // main —— 数组形式：索引即 slot 渲染顺序
-  // full-player —— fp-backdrop 为 slot 型容器（背景层），children 数组自动包装
-  //   为同名子 slot；main-cover 为命名子 slot（CSS 用 .main-cover 定位）
+  // WMPlayer 默认布局（回退版：与上一个 commit 设备实测配置一致）
+  // main —— 对象形式：slot 名 → 组件数组
+  // full-player —— fp-backdrop 背景层容器 + 命名子 slot（fp-space1/fp-main/fp-space2）
   // ═══════════════════════════════════════════════════
-  "main": [
-    {
-      "app-top": [
-        "spacer@m-top-spacer",
-        "app-name",
+  "main": {
+    "app-top": [
+      "app-name",
+      "spacer",
+      "search-button",
+      "setting-button"
+    ],
+    "app-center": [
+      "tab-bar",
+      "sort",
+      "playlist"
+    ],
+    "app-bottom": [
+      "playbar"
+    ]
+  },
+  "full-player": {
+    "fp-backdrop": {
+      "fp-space1": [
+        "spacer@fp-spacer"
+      ],
+      "fp-main": [
+        "spacer@fp-top-spacer",
+        "fp-title",
+        "fp-subtitle",
         "spacer",
-        "search-button",
-        "setting-button"
-      ]
-    },
-    {
-      "app-center": [
-        "tab-bar",
-        "sort",
-        "playlist"
-      ]
-    },
-    {
-      "app-bottom": [
+        "fp-cover",
+        "spacer",
+        "fp-progress",
+        "spacer@fp-progress-spacer",
         {
-          "name": "pb-backdrop",
-          "children": {
-            "pb-backdrop": [
-              "pb-cover",
-              "pb-track-info",
-              "pb-controls"
-            ]
-          }
-        }
+          "name": "button",
+          "children": [
+            "playmode-button",
+            "prev-button",
+            "play-button",
+            "next-button",
+            "queue-button"
+          ]
+        },
+        "spacer@fp-bottom-spacer"
+      ],
+      "fp-space2": [
+        "spacer@fp-spacer"
       ]
     }
-  ],
-  "full-player": {
-    "fp-backdrop": [
-      "fp-title",
-      "fp-subtitle",
-      { "name": "main-cover", "children": ["fp-cover"] },
-      "fp-progress",
-      "controls-row",
-      "spacer@fp-bottom-spacer"
-    ]
   }
 }
 """.trimIndent()
 
-        /** 默认 styles.css 模板（首次启动写入磁盘）——与设备实测配置一致（来源：手机 Download / App config，两处相同）。 */
+        /** 默认 styles.css 模板（首次启动写入磁盘）——回退到上一个 commit 的布局样式（来源：手机实测配置）。 */
         fun defaultStylesCss(): String = """
-/* ═══════════════════════════════════════════════════
-   WMPlayer 默认样式（与设备实测配置一致）
-   主界面 slot 方向由 .main 控制；全屏播放器由 .full-player 控制
-   #tab-bar { display: row } 为横向 TabRow（column 为竖向 FilterChip）
-   ═══════════════════════════════════════════════════ */
-
-/* ── 主界面外层：slot 垂直堆叠 ── */
+/* 外层容器方向 — slot 之间的排列方式 */
+/*   arrange: column — 垂直堆叠（默认） */
+/*   arrange: row    — 水平排列 */
 .main { arrange: column; }
 
-/* ── 顶部栏：水平排列 ── */
-.app-top {
-  arrange: row;
-  weight: 0;
-  gap: 4px;
-  padding: 8px 12px;
-}
+/* slot 内部组件排列方向：arrange: row | column */
+/* slot 比例：weight: 1（默认均分）| 0（包裹内容）| 2、3... */
 
-#m-top-spacer { weight: 0;  }
-/* 应用名字号 */
-#app-name { font-size: 20px; }
-
-/* 图标按钮尺寸（color 可设置图标颜色，默认跟随主题） */
+.full-player { arrange: column; gap: 8px; }
+.app-top    { arrange: row;    weight: 0; }
 #search-button  { size: 40px; }
 #setting-button { size: 40px; }
+#spacer     { weight: 1; }
+.app-center { arrange: column; weight: 1; }
+.app-bottom { arrange: row;    weight: 0; }
 
-/* 弹性占位：把应用名与右侧按钮推到两端 */
-#spacer { weight: 1; }
+/* ── 全屏播放器（fp-backdrop 背景层 + 前景） ── */
+/* #fp-backdrop 控制 children 子 slot 之间的排列方向（row = 左右布局） */
+#fp-backdrop { arrange: row; padding: 24px 16px 0; }
+#fp-spacer { weight: 0; width: 16px; }
+.fp-space1 { weight: 0; }
+.fp-space2 { weight: 0; }
+.fp-main { arrange: column; }
+/* 按钮组（命名子 slot .button）：横向居中 */
+.button { arrange: row; justify-content: center; gap: 16px; padding: 8px 0 24px; }
 
-/* ── 主内容区：垂直排列，占满剩余空间 ── */
-.app-center {
-  arrange: column;
-  weight: 1;
-  gap: 8px;
-  padding: 4px 0;
-}
-
-/* 分类标签：竖向 FilterChip 列表（display: row 可切换为顶部 TabRow） */
-#tab-bar { display: row; }
-
-/* ── 底部迷你播放栏（pb-* 拆分组合） ── */
-.app-bottom {
-  arrange: row;
-  weight: 0;
-}
-
-/* pb-backdrop 前景子 slot：水平排列（背景卡片样式由 pb-backdrop 组件自带） */
-.pb-backdrop {
-  arrange: row;
-  gap: 12px;
-  padding: 6px 16px;
-}
-
-#pb-cover { size: 56px; }
-#pb-track-info { weight: 1; }
-
-/* ═══ 全屏播放器 ═══ */
-
-/* 外层方向：垂直排列 */
-.full-player { arrange: column; gap: 8px; }
-
-/* fp-backdrop 前景子 slot：内边距，让内容不贴边 */
-.fp-backdrop { padding: 24px; }
-
-/* 主封面：占据剩余空间，封面垂直居中 */
-.main-cover {
-  weight: 1;
-  justify-content: center;
-}
-
-#fp-bottom-spacer { weight: 0; height: 32px}
+/* 封面尺寸 */
+#fp-cover { size: 320px; align-self: center;}
+#fp-top-spacer { weight: 0; height: 32px; }
+#fp-progress-spacer { weight: 0; height: 16px; }
+#fp-bottom-spacer { weight: 0; height: 100px; }
 """.trimIndent()
 
         /** 从根级 JSON 对象解析 ComponentLayout。 */
-        internal fun parseConfigObjectStatic(root: JSONObject): ComponentLayout {
+        /** 从根级 JSON 对象解析 ComponentLayout（公开：供 ui 模块复用，如插件页面 JSON 解析）。 */
+        fun parseConfigObjectStatic(root: JSONObject): ComponentLayout {
             val slots = linkedMapOf<String, List<ComponentEntry>>()
             val customComponents = linkedMapOf<String, Map<String, Any?>>()
             var fullPlayerSlots: Map<String, List<ComponentEntry>>? = null

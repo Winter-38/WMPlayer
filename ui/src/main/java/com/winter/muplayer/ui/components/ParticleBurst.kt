@@ -6,21 +6,30 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -89,7 +98,9 @@ fun rememberParticleBurstEffect(
             durationMillis = durationMillis,
         )
     }
-    return state to Modifier.onGloballyPositioned { coordinates = it }
+    return state to Modifier
+        .renderedColor(color)
+        .onGloballyPositioned { coordinates = it }
 }
 
 /** 单个粒子的随机参数（每次触发时重新生成，动画期间固定） */
@@ -157,6 +168,67 @@ val LocalParticleBurstHost = compositionLocalOf<ParticleBurstHostState?> { null 
 /** 粒子特效总开关（来自设置），关闭时按钮不再触发粒子 */
 val LocalParticleBurstEnabled = staticCompositionLocalOf { true }
 
+// ══════════════════════════════════════════════
+// 渲染色注册表 —— 全局点击粒子的自动取色来源
+// ══════════════════════════════════════════════
+
+/** 一个已注册的渲染色区域：绑定边界（LayoutCoordinates）与颜色。 */
+internal class RenderedColorRegion(
+    val id: Int,
+    var coords: LayoutCoordinates?,
+    var color: Color,
+) {
+    /** root 坐标是否落在该区域边界内（未布局/已脱离组合时返回 false） */
+    fun contains(rootPos: Offset): Boolean {
+        val c = coords ?: return false
+        if (!c.isAttached) return false
+        return c.boundsInRoot().contains(rootPos)
+    }
+}
+
+/**
+ * 渲染色注册表 —— 组件通过 [Modifier.renderedColor] 注册自身渲染色与边界，
+ * 全局点击粒子层在点击时命中查色，实现「颜色随点击位置的渲染色自动变化」。
+ * 后注册的视为更上层，命中时优先。
+ */
+class RenderedColorRegistry {
+    private val regions = mutableListOf<RenderedColorRegion>()
+    private var nextId = 0
+
+    /** 注册区域，返回可更新的 id；coords 可为 null（随后由 onGloballyPositioned 补齐） */
+    fun register(coords: LayoutCoordinates?, color: Color): Int {
+        val id = nextId++
+        regions.add(RenderedColorRegion(id, coords, color))
+        return id
+    }
+
+    /** 更新已注册区域的边界与颜色（组件布局/换色时调用） */
+    fun update(id: Int, coords: LayoutCoordinates?, color: Color) {
+        val region = regions.find { it.id == id } ?: return
+        region.coords = coords
+        region.color = color
+    }
+
+    /** 注销区域（组件离开组合时调用） */
+    fun unregister(id: Int) {
+        regions.removeAll { it.id == id }
+    }
+
+    /** 返回包含 rootPos 的最上层（后注册）区域渲染色；未命中返回 null */
+    fun colorAt(rootPos: Offset): Color? {
+        for (i in regions.indices.reversed()) {
+            if (regions[i].contains(rootPos)) return regions[i].color
+        }
+        return null
+    }
+
+    /** 当前注册区域数（诊断用） */
+    val size: Int get() = regions.size
+}
+
+/** 当前渲染色注册表；未提供时全局点击粒子回退主题色 */
+val LocalRenderedColorRegistry = compositionLocalOf<RenderedColorRegistry?> { null }
+
 /**
  * 全局粒子爆发宿主：挂载在 app 内容的最上层（例如根部 Box 的最后一个子节点），
  * 负责绘制所有按钮触发的粒子。
@@ -218,7 +290,9 @@ fun ParticleBurstBox(
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     Box(
-        modifier = modifier.onGloballyPositioned { coordinates = it },
+        modifier = modifier
+            .renderedColor(color)
+            .onGloballyPositioned { coordinates = it },
     ) {
         content()
     }
@@ -237,5 +311,64 @@ fun ParticleBurstBox(
             radiusPx = with(density) { radius.toPx() },
             durationMillis = 480,
         )
+    }
+}
+
+/**
+ * 向渲染色注册表注册当前组件的渲染色与边界。
+ *
+ * 叠加到任何可见组件（按钮、色块等）的 modifier 链上后，全局点击粒子层
+ * 在该区域点击时自动取到该渲染色，实现「颜色随点击位置渲染色变化」。
+ * 未挂载 [LocalRenderedColorRegistry] 时静默降级（不注册，不影响布局）。
+ */
+@Composable
+fun Modifier.renderedColor(color: Color): Modifier = composed {
+    val registry = LocalRenderedColorRegistry.current
+    var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val id = remember { registry?.register(null, color) }
+    DisposableEffect(id) {
+        onDispose { if (id != null) registry?.unregister(id) }
+    }
+    SideEffect { if (id != null) registry?.update(id, coords, color) }
+    this.onGloballyPositioned { coords = it }
+}
+
+/**
+ * 全局点击粒子层 —— 观察挂载点内的一切点击（tap），在点击位置发射粒子。
+ *
+ * - 纯观察不消费事件：不拦截任何子组件的点击/滚动
+ * - 拖动位移超过 touch slop（滚动/滑动）不触发；长按松手视为点击
+ * - 粒子颜色自动取自点击位置的渲染色（[RenderedColorRegistry] 命中），
+ *   未命中回退主题 primary 色
+ * - 遵守 [LocalParticleBurstEnabled] 总开关
+ *
+ * 挂载方式：根 Box 的 modifier，例如 `Modifier.fillMaxSize().globalTapParticles(host)`。
+ */
+@Composable
+fun Modifier.globalTapParticles(host: ParticleBurstHostState): Modifier = composed {
+    val enabled by rememberUpdatedState(LocalParticleBurstEnabled.current)
+    val registry = LocalRenderedColorRegistry.current
+    val density = LocalDensity.current
+    val fallbackColor = MaterialTheme.colorScheme.primary
+    val radius = 64.dp
+
+    pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val downPosition = down.position
+            val up = waitForUpOrCancellation()
+            if (up != null && enabled) {
+                // 位移超过 touch slop 视为拖动（滚动/滑动手势），不算点击
+                if ((up.position - downPosition).getDistance() <= viewConfiguration.touchSlop) {
+                    val color = registry?.colorAt(downPosition) ?: fallbackColor
+                    host.addBurst(
+                        color = color,
+                        center = downPosition,
+                        radiusPx = with(density) { radius.toPx() },
+                        durationMillis = 480,
+                    )
+                }
+            }
+        }
     }
 }

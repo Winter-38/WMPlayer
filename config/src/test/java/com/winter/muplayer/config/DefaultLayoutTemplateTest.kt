@@ -6,10 +6,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 初始默认布局文件模板测试。
+ * 初始默认布局文件模板测试（回退版：上一个 commit 的设备实测布局）。
  *
  * 验证 [StyleConfigLoader.defaultMainJson] / [StyleConfigLoader.defaultStylesCss]
- * （首次启动由 `writeDefaultsIfMissing` 写入磁盘的模板，与手机设备实测配置一致）：
+ * （首次启动由 `writeDefaultsIfMissing` 写入磁盘的模板）：
  * - JSON 可被解析器正确解析，主界面 slot 与全屏播放器结构符合预期
  * - CSS 可被 [CssParser] 解析，关键规则齐全
  * - 模板引用的组件 id 全部在 ui 模块注册清单内
@@ -23,19 +23,18 @@ class DefaultLayoutTemplateTest {
     fun mainJson_主界面slots结构正确() {
         val layout = StyleConfigLoader.parseConfigObjectStatic(parseMainJson())
 
-        // app-top：左侧占位（cid=m-top-spacer）+ 应用名 + 弹性占位 + 搜索 + 设置
+        // app-top：应用名 + 弹性占位 + 搜索 + 设置
         assertEquals(
-            listOf("spacer", "app-name", "spacer", "search-button", "setting-button"),
+            listOf("app-name", "spacer", "search-button", "setting-button"),
             layout.slots.getValue("app-top").map { it.id },
         )
-        assertEquals("m-top-spacer", layout.slots.getValue("app-top")[0].cid)
         assertEquals(
             "主区域应包含 分类标签/排序/播放列表",
             listOf("tab-bar", "sort", "playlist"),
             layout.slots.getValue("app-center").map { it.id },
         )
         assertEquals(
-            "底部栏应包含迷你播放栏",
+            "底部栏应包含迷你播放栏（playbar 聚合组件）",
             listOf("playbar"),
             layout.slots.getValue("app-bottom").map { it.id },
         )
@@ -52,27 +51,29 @@ class DefaultLayoutTemplateTest {
         assertEquals("fp-backdrop", backdrop.id)
         assertTrue("fp-backdrop 必须携带 children 前景层", backdrop.extra["children"] is Map<*, *>)
 
-        // children 数组自动包装为单个子 slot（名 = 容器 id）
+        // children 为命名子 slot：fp-space1 / fp-main / fp-space2（左右留白 + 主内容）
         @Suppress("UNCHECKED_CAST")
         val children = backdrop.extra["children"] as Map<String, List<ComponentEntry>>
-        assertEquals(setOf("fp-backdrop"), children.keys)
-        val content = children.getValue("fp-backdrop").map { it.id }
+        assertEquals(setOf("fp-space1", "fp-main", "fp-space2"), children.keys)
 
-        // 标题 → 副标题 → 封面（命名子 slot main-cover）→ 进度条 → 按钮组 → 底部留白
+        // fp-main 内容顺序：顶部留白 → 标题 → 副标题 → 弹性 → 封面 → 弹性 → 进度条 → 留白 → 按钮组 → 底部留白
+        val main = children.getValue("fp-main").map { it.id }
         assertEquals(
             listOf(
-                "fp-title", "fp-subtitle", LayoutParser.ANONYMOUS_CONTAINER,
-                "fp-progress", "controls-row", "spacer",
+                "spacer", "fp-title", "fp-subtitle", "spacer",
+                "fp-cover", "spacer", "fp-progress", "spacer",
+                LayoutParser.ANONYMOUS_CONTAINER, "spacer",
             ),
-            content,
+            main,
         )
-        assertEquals("fp-bottom-spacer", children.getValue("fp-backdrop")[5].cid)
-
-        // main-cover 命名子 slot：内部只有 fp-cover
+        // 按钮组命名子 slot：横向居中排列播放控制
         @Suppress("UNCHECKED_CAST")
-        val coverChildren = (children.getValue("fp-backdrop")[2].extra["children"] as Map<String, List<ComponentEntry>>)
-        assertEquals(setOf("main-cover"), coverChildren.keys)
-        assertEquals(listOf("fp-cover"), coverChildren.getValue("main-cover").map { it.id })
+        val buttonChildren = (children.getValue("fp-main")[8].extra["children"]
+            as Map<String, List<ComponentEntry>>).getValue("button")
+        assertEquals(
+            listOf("playmode-button", "prev-button", "play-button", "next-button", "queue-button"),
+            buttonChildren.map { it.id },
+        )
     }
 
     @Test
@@ -86,24 +87,29 @@ class DefaultLayoutTemplateTest {
         assertEquals("row", rules[".app-top"]?.get("arrange"))
         assertEquals("0", rules[".app-top"]?.get("weight"))
         assertEquals("1", rules["#spacer"]?.get("weight"))
-        assertTrue(rules.containsKey("#m-top-spacer"))
-        assertTrue(rules.containsKey("#app-name"))
-        assertTrue(rules.containsKey("#search-button"))
-        assertTrue(rules.containsKey("#setting-button"))
 
-        // 主区域 / 分类标签（设备配置为横向 TabRow）/ 底部栏
+        // 主区域 / 底部迷你播放栏
         assertEquals("column", rules[".app-center"]?.get("arrange"))
         assertEquals("1", rules[".app-center"]?.get("weight"))
-        assertEquals("row", rules["#tab-bar"]?.get("display"))
         assertEquals("row", rules[".app-bottom"]?.get("arrange"))
         assertEquals("0", rules[".app-bottom"]?.get("weight"))
 
-        // 全屏播放器：外层纵向、前景子 slot 内边距、封面命名子 slot 居中、底部留白
+        // 全屏播放器：外层纵向、fp-backdrop 前景横向 + 内边距
         assertEquals("column", rules[".full-player"]?.get("arrange"))
-        assertTrue(rules[".fp-backdrop"]?.containsKey("padding") == true)
-        assertEquals("1", rules[".main-cover"]?.get("weight"))
-        assertEquals("center", rules[".main-cover"]?.get("justify-content"))
-        assertEquals("32px", rules["#fp-bottom-spacer"]?.get("height"))
+        assertEquals("row", rules["#fp-backdrop"]?.get("arrange"))
+        assertTrue(rules["#fp-backdrop"]?.containsKey("padding") == true)
+
+        // 命名子 slot：左右留白 weight 0、主内容纵向、按钮组横向居中
+        assertEquals("0", rules[".fp-space1"]?.get("weight"))
+        assertEquals("0", rules[".fp-space2"]?.get("weight"))
+        assertEquals("column", rules[".fp-main"]?.get("arrange"))
+        assertEquals("row", rules[".button"]?.get("arrange"))
+        assertEquals("center", rules[".button"]?.get("justify-content"))
+
+        // 封面与留白高度
+        assertEquals("320px", rules["#fp-cover"]?.get("size"))
+        assertEquals("32px", rules["#fp-top-spacer"]?.get("height"))
+        assertEquals("100px", rules["#fp-bottom-spacer"]?.get("height"))
     }
 
     @Test
@@ -116,7 +122,7 @@ class DefaultLayoutTemplateTest {
             "app-name", "spacer", "search-button", "setting-button",
             "tab-bar", "sort", "playlist", "playbar",
             "fp-backdrop", "fp-cover", "fp-title", "fp-subtitle", "fp-progress",
-            "controls-row",
+            "playmode-button", "prev-button", "play-button", "next-button", "queue-button",
         )
         val unknown = ids - registered
         assertTrue("模板引用了未注册组件: $unknown", unknown.isEmpty())

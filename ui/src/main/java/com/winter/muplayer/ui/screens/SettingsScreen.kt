@@ -1,8 +1,15 @@
 package com.winter.muplayer.ui.screens
 
-import android.os.Build
 import android.content.pm.PackageManager
+import android.os.Build
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
+import com.winter.muplayer.ui.PluginHost
 import com.winter.muplayer.ui.R
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,11 +44,22 @@ fun SettingsScreen(
     onLanguageChange: () -> Unit = {},
     onReloadConfig: () -> Unit = {}
 ) {
-    Column(
+    val context = LocalContext.current
+    // 插件管理子页面：设置内仅保留入口，点入独立管理界面
+    var showPluginManager by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize()) {
+        // 设置页主体：切到插件管理时左滑淡出
+        AnimatedVisibility(
+            visible = !showPluginManager,
+            enter = fadeIn(tween(220)),
+            exit = slideOutHorizontally(tween(260)) { -it / 3 } + fadeOut(tween(180)),
+        ) {
+        Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-    ) {
+        ) {
         // 顶部的返回栏
         Row(
             modifier = Modifier
@@ -144,10 +162,35 @@ fun SettingsScreen(
                 LanguageSetting(settings, onLanguageChange)
             }
 
+            // ========== 插件 ==========
+            item { SectionHeader(stringResource(R.string.section_plugins)) }
+
+            item {
+                val pluginCount = remember(showPluginManager) {
+                    PluginHost.get(context).installedPlugins().size
+                }
+                SettingsClickItem(
+                    title = stringResource(R.string.plugin_manager),
+                    subtitle = stringResource(R.string.plugin_manager_subtitle, pluginCount),
+                    onClick = { showPluginManager = true },
+                )
+            }
+
             // ========== 关于 ==========
             item { SectionHeader(stringResource(R.string.section_about)) }
 
             item { AboutSection() }
+            }
+        }
+        }
+
+        // 插件管理界面：从右滑入 + 淡入
+        AnimatedVisibility(
+            visible = showPluginManager,
+            enter = slideInHorizontally(tween(300)) { it } + fadeIn(tween(220)),
+            exit = fadeOut(tween(180)) + slideOutHorizontally(tween(260)) { it },
+        ) {
+            PluginManagerScreen(onBack = { showPluginManager = false })
         }
     }
 }

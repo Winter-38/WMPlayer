@@ -136,6 +136,16 @@ class ExoPlayerEngine(context: Context) : PlayerEngine {
         duckOnFocusLoss = duck
     }
 
+    /** 设置播放音量（0~1）。 */
+    fun setVolume(volume: Float) {
+        exoPlayer.volume = volume.coerceIn(0f, 1f)
+    }
+
+    /** 设置播放倍速（>=0.05）。 */
+    fun setPlaybackSpeed(speed: Float) {
+        exoPlayer.setPlaybackSpeed(speed.coerceAtLeast(0.05f))
+    }
+
     /** 请求音频焦点 */
     private fun requestAudioFocus() {
         if (hasAudioFocus) return

@@ -42,6 +42,8 @@ dependencies {
     implementation(project(":model"))
     implementation(project(":core"))
     implementation(project(":config"))
+    implementation(project(":plugin"))
+    implementation(libs.luaj.jse)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.material3)
     implementation("androidx.compose.foundation:foundation")

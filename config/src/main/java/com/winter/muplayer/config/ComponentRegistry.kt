@@ -3,6 +3,7 @@ package com.winter.muplayer.config
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -73,12 +74,20 @@ val LocalProgress = compositionLocalOf { ProgressTracker.ProgressData() }
  */
 object ComponentRegistry {
 
-    private val registry = mutableMapOf<String, @Composable SlotContext.() -> Unit>()
+    private val registry = mutableStateMapOf<String, @Composable SlotContext.() -> Unit>()
 
     /** 注册一个组件渲染器 */
     fun register(id: String, renderer: @Composable SlotContext.() -> Unit) {
         registry[id] = renderer
     }
+
+    /** 反注册（插件卸载时清理），未注册时安全跳过 */
+    fun unregister(id: String) {
+        registry.remove(id)
+    }
+
+    /** 是否已注册（供渲染器回退判定，如 # 前缀的插件组件引用）。 */
+    fun isRegistered(id: String): Boolean = registry.containsKey(id)
 
     /** 根据 ID 渲染组件，modifier 包裹组件（来自 CSS 样式）；未注册时静默跳过 */
     @Composable

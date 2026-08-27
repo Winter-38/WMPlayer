@@ -72,6 +72,7 @@ dependencies {
     implementation(project(":ui"))
     implementation(project(":config"))
     implementation(project(":core"))
+    implementation(project(":plugin"))
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
