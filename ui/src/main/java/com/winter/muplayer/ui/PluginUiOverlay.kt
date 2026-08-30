@@ -38,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -322,6 +323,8 @@ private fun PluginInfoDialog(session: PluginSession) {
 @Composable
 private fun rememberPluginSlotContext(context: Context): SlotContext {
     val core = remember { MusicPlayerCore.getInstance(context) }
+    // 插件页面不参与封面缓存（占位空表，按需缓存由主界面组件驱动）
+    val pluginCoverCache = remember { mutableStateMapOf<Long, String>() }
     return remember(core) {
         SlotContext(
             slotName = "plugin-page",
@@ -329,7 +332,7 @@ private fun rememberPluginSlotContext(context: Context): SlotContext {
             onOpenSettings = {},
             localMusicList = emptyList(),
             isLoadingLocal = false,
-            coverCache = emptyMap(),
+            coverCache = pluginCoverCache,
             musicPlayerCore = core,
             onPlayTrackSmart = { _, _ -> },
             playerState = core.playerState.value,

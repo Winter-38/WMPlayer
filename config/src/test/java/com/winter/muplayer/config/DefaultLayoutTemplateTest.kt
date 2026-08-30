@@ -88,11 +88,13 @@ class DefaultLayoutTemplateTest {
         assertEquals("0", rules[".app-top"]?.get("weight"))
         assertEquals("1", rules["#spacer"]?.get("weight"))
 
-        // 主区域 / 底部迷你播放栏
+        // 主区域 / 底部迷你播放栏：线性布局
         assertEquals("column", rules[".app-center"]?.get("arrange"))
         assertEquals("1", rules[".app-center"]?.get("weight"))
         assertEquals("row", rules[".app-bottom"]?.get("arrange"))
         assertEquals("0", rules[".app-bottom"]?.get("weight"))
+        // 迷你栏半透明渲染样式（semi-tran），默认不透明
+        assertEquals("none", rules["#playbar"]?.get("render-style"))
 
         // 全屏播放器：外层纵向、fp-backdrop 前景横向 + 内边距
         assertEquals("column", rules[".full-player"]?.get("arrange"))
@@ -123,9 +125,56 @@ class DefaultLayoutTemplateTest {
             "tab-bar", "sort", "playlist", "playbar",
             "fp-backdrop", "fp-cover", "fp-title", "fp-subtitle", "fp-progress",
             "playmode-button", "prev-button", "play-button", "next-button", "queue-button",
+            // 渲染器特判容器（非 ComponentRegistry 组件）：毛玻璃镜像容器
+            "backdrop-blur",
         )
         val unknown = ids - registered
         assertTrue("模板引用了未注册组件: $unknown", unknown.isEmpty())
+    }
+
+    @Test
+    fun 默认模板为线性布局且semitran可选() {
+        // 默认布局：app-center 线性 + app-bottom 迷你栏（不再默认叠放/毛玻璃）
+        val layout = StyleConfigLoader.parseConfigObjectStatic(
+            JSONObject(LayoutParser.removeComments(StyleConfigLoader.defaultMainJson()))
+        )
+        assertEquals(
+            listOf("tab-bar", "sort", "playlist"),
+            layout.slots.getValue("app-center").map { it.id },
+        )
+        // CSS 模板定义 semi-tran 半透明渲染样式值，默认 none
+        val rules = CssParser.parse(StyleConfigLoader.defaultStylesCss())
+        assertEquals("none", rules["#playbar"]?.get("render-style"))
+        assertTrue("模板 CSS 应含 semi-tran 值", StyleConfigLoader.defaultStylesCss().contains("semi-tran"))
+        // backdrop-blur 毛玻璃容器仍是可选能力（渲染器特判），但默认模板不再引用
+        assertTrue(!StyleConfigLoader.defaultMainJson().contains("backdrop-blur"))
+    }
+
+    @Test
+    fun overlay浮层布局可解析且playbar自包含毛玻璃() {
+        // 三态切换中「半透明/毛玻璃」的目标布局：前景列表 + playbar 浮层（毛玻璃镜像由 playbar 自包含）
+        val overlayJson = """
+        {
+          "main": {
+            "app-center": [
+              { "name": "content", "children": ["tab-bar", "sort", "playlist"] },
+              "playbar"
+            ]
+          }
+        }
+        """.trimIndent()
+        val layout = StyleConfigLoader.parseConfigObjectStatic(
+            JSONObject(LayoutParser.removeComments(overlayJson))
+        )
+        val center = layout.slots.getValue("app-center")
+        // 两层：内容层（前景列表）→ playbar 浮层
+        assertEquals(
+            listOf(LayoutParser.ANONYMOUS_CONTAINER, "playbar"),
+            center.map { it.id },
+        )
+        @Suppress("UNCHECKED_CAST")
+        val contentChildren = center[0].extra["children"] as Map<String, List<ComponentEntry>>
+        assertEquals(listOf("tab-bar", "sort", "playlist"), contentChildren.getValue("content").map { it.id })
     }
 
     /** 递归收集 slots 中引用的全部组件 id（含 children 嵌套，过滤匿名容器占位） */

@@ -41,6 +41,8 @@ class PluginInstaller(private val config: PluginConfig) {
             tmpDir.deleteRecursively()
             throw PluginException("插件目录落盘失败: ${manifest.id}")
         }
+        // 安装成功即删除安装包（下载 / 导入的 zip 均为临时件，避免永久占盘）
+        try { zip.delete() } catch (_: Exception) { }
         return manifest.toDescriptor(targetDir)
     }
 

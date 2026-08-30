@@ -517,23 +517,19 @@ fun MusicBrowserList(
         filteredTracks.groupBy { it.album.ifBlank { unknownAlbum } }.toSortedMap()
     }
 
-    // 列表滚动状态：普通 remember + 按需重建（listKey）。
-    // 冷启动、排序变化、数据加载完成时都通过重建 LazyListState 实例
-    // 强制回到顶部 —— 新实例必然从位置 0 开始，从机制上排除任何
-    // 位置恢复/漂移的可能（比 scrollToItem 更彻底，不受协程时序影响）。
-    var listKey by remember { mutableIntStateOf(0) }
+    // 列表滚动状态由全局 MusicBrowserState 持有：backdrop-blur 毛玻璃镜像（双渲染）
+    // 与主列表绑定同一实例，滚动实时同步；排序/数据变化时 resetListScroll() 重建实例回到顶部。
+    val listState = state.listState
 
     // 排序方式/方向变化 → 重建滚动状态，回到顶部
     LaunchedEffect(state.sortField, state.sortAsc) {
-        listKey++
+        state.resetListScroll()
     }
 
     // 数据加载完成（冷启动/刷新/权限变化）→ 重建滚动状态，回到顶部
     LaunchedEffect(state.isLoading) {
-        if (!state.isLoading) listKey++
+        if (!state.isLoading) state.resetListScroll()
     }
-
-    val listState = remember(listKey) { LazyListState() }
 
     when (state.selectedCategory) {
         MusicCategory.ALL -> AllSongsTab(
@@ -575,10 +571,6 @@ fun MusicBrowserList(
 // ==================== 辅助函数 ====================
 
 fun getAlbumArtUri(track: Track, coverCache: Map<Long, String>): Any? {
-    // 优先本地原始内嵌封面缓存；未缓存时用 MediaStore 缩略图临时兜底
-    return coverCache[track.id] ?: if (track.albumId > 0L) {
-        android.net.Uri.parse(
-            "content://media/external/audio/albumart/${track.albumId}"
-        )
-    } else null
+    // 优先本地压缩缩略图（thumb），回退原始无损封面；未缓存时用 MediaStore 缩略图临时兜底
+    return com.winter.muplayer.ui.components.getAlbumArtUri(track, coverCache)
 }

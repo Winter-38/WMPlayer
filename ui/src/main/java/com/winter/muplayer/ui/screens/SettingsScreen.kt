@@ -25,7 +25,25 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.winter.muplayer.config.LiquidGlassBackdrop
 import com.winter.muplayer.core.SettingsManager
+import kotlin.math.roundToInt
+import java.util.Locale
+
+/**
+ * 液态玻璃视觉参数（与 styles.css `#playbar` liquid-* 一一对应；仅液态玻璃 liquid 模式生效）：
+ * edge/refraction 为 dp 语义（原版示例同源），blurRadiusDp 为模糊半径（毛玻璃/液态玻璃共用），
+ * surfaceAlpha 为表面基色不透明度（0..1，越大越不透明），其余强度类无单位。
+ */
+data class LiquidGlassParams(
+    val blurRadiusDp: Float = LiquidGlassBackdrop.DEFAULT_BLUR_RADIUS_DP,
+    val edgeWidthDp: Float = LiquidGlassBackdrop.DEFAULT_EDGE_WIDTH_DP,
+    val refractionDp: Float = LiquidGlassBackdrop.DEFAULT_REFRACTION_DP,
+    val surfaceAlpha: Float = LiquidGlassBackdrop.DEFAULT_SURFACE_ALPHA,
+    val specular: Float = LiquidGlassBackdrop.DEFAULT_SPECULAR,
+    val shininess: Float = LiquidGlassBackdrop.DEFAULT_SHININESS,
+    val rimStrength: Float = LiquidGlassBackdrop.DEFAULT_RIM_STRENGTH,
+)
 
 /**
  * 设置页面——包含”播放“、”显示“、”扫描“、”关于“等所有配置项。
@@ -42,7 +60,13 @@ fun SettingsScreen(
     onClearErrorLogs: () -> Unit = {},
     onCrossfadeChange: (Int) -> Unit = {},
     onLanguageChange: () -> Unit = {},
-    onReloadConfig: () -> Unit = {}
+    onReloadConfig: () -> Unit = {},
+    // 迷你播放栏渲染样式：none（无效果）/ semi-tran（半透明）/ blur（毛玻璃），状态读自 CSS、切换写 CSS
+    miniRenderStyle: String = "none",
+    onMiniRenderStyleChange: (String) -> Unit = {},
+    // 液态玻璃视觉参数：状态读自 CSS（#playbar liquid-*）、滑块松手时写 CSS + 热重载
+    liquidGlassParams: LiquidGlassParams = LiquidGlassParams(),
+    onLiquidGlassParamsChange: (LiquidGlassParams) -> Unit = {}
 ) {
     val context = LocalContext.current
     // 插件管理子页面：设置内仅保留入口，点入独立管理界面
@@ -101,6 +125,16 @@ fun SettingsScreen(
                 item { DynamicColorSetting(settings, onSettingChanged) }
             }
             item { BlurBackgroundSetting(settings, onSettingChanged) }
+            item { MiniBlurSetting(miniRenderStyle, onMiniRenderStyleChange) }
+            // 毛玻璃 / 液态玻璃模式都可调玻璃参数（模糊度、高光）；折射相关仅液态玻璃显示
+            if (miniRenderStyle == "liquid" || miniRenderStyle == "blur") {
+                item {
+                    LiquidGlassSetting(
+                        liquidGlassParams, onLiquidGlassParamsChange,
+                        showRefraction = miniRenderStyle == "liquid",
+                    )
+                }
+            }
             item { AdaptiveTintSetting(settings, onSettingChanged) }
             item { ParticleEffectSetting(settings, onSettingChanged) }
 
@@ -357,6 +391,195 @@ private fun BlurBackgroundSetting(settings: SettingsManager, onSettingChanged: (
         checked = enabled,
         onCheckedChange = { enabled = it; settings.blurBackground = it; onSettingChanged() }
     )
+}
+
+@Composable
+private fun MiniBlurSetting(style: String, onChange: (String) -> Unit) {
+    val options = listOf(
+        "none" to stringResource(R.string.mini_blur_none),
+        "semi-tran" to stringResource(R.string.mini_blur_semi),
+        "blur" to stringResource(R.string.mini_blur_blur),
+        "liquid" to stringResource(R.string.mini_blur_liquid),
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.mini_blur_background),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = stringResource(R.string.mini_blur_background_subtitle),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            options.forEach { (value, label) ->
+                FilterChip(
+                    selected = style == value,
+                    onClick = { onChange(value) },
+                    label = { Text(label) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 液态玻璃视觉参数设置（液态玻璃 liquid / 毛玻璃 blur 模式显示）：
+ * - 模糊度（blur-radius）与高光滑块两模式共用；
+ * - 折射相关滑块（边缘隆起/折射强度/表面不透明度）仅液态玻璃模式显示。
+ * 拖动只更新本地 state（即时预览数值），松手（onValueChangeFinished）才经 onChange 写 CSS + 热重载，
+ * 避免滑块滑动过程中频繁重写文件 / 重建布局导致的卡顿。
+ */
+@Composable
+private fun LiquidGlassSetting(
+    params: LiquidGlassParams,
+    onChange: (LiquidGlassParams) -> Unit,
+    showRefraction: Boolean = true,
+) {
+    var blurRadius by remember(params) { mutableStateOf(params.blurRadiusDp) }
+    var edge by remember(params) { mutableStateOf(params.edgeWidthDp) }
+    var refraction by remember(params) { mutableStateOf(params.refractionDp) }
+    var surfaceAlpha by remember(params) { mutableStateOf(params.surfaceAlpha) }
+    var specular by remember(params) { mutableStateOf(params.specular) }
+    var shininess by remember(params) { mutableStateOf(params.shininess) }
+    var rim by remember(params) { mutableStateOf(params.rimStrength) }
+
+    fun commit() = onChange(
+        LiquidGlassParams(
+            blurRadiusDp = blurRadius,
+            edgeWidthDp = edge,
+            refractionDp = refraction,
+            surfaceAlpha = surfaceAlpha,
+            specular = specular,
+            shininess = shininess,
+            rimStrength = rim,
+        )
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.liquid_glass_title),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = stringResource(R.string.liquid_glass_subtitle),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        LiquidGlassSlider(
+            label = stringResource(R.string.liquid_blur),
+            value = blurRadius,
+            valueText = "${blurRadius.roundToInt()} dp",
+            range = 0f..32f,
+            step = 1f,
+            onValueChange = { blurRadius = it },
+            onValueChangeFinished = ::commit,
+        )
+        if (showRefraction) {
+            LiquidGlassSlider(
+                label = stringResource(R.string.liquid_edge),
+                value = edge,
+                valueText = "${edge.roundToInt()} dp",
+                range = 2f..72f,
+                step = 1f,
+                onValueChange = { edge = it },
+                onValueChangeFinished = ::commit,
+            )
+            LiquidGlassSlider(
+                label = stringResource(R.string.liquid_refraction),
+                value = refraction,
+                valueText = "${refraction.roundToInt()} dp",
+                range = 2f..72f,
+                step = 1f,
+                onValueChange = { refraction = it },
+                onValueChangeFinished = ::commit,
+            )
+            LiquidGlassSlider(
+                label = stringResource(R.string.liquid_opacity),
+                value = surfaceAlpha,
+                valueText = String.format(Locale.US, "%.2f", surfaceAlpha),
+                range = 0.05f..0.6f,
+                step = 0.05f,
+                onValueChange = { surfaceAlpha = it },
+                onValueChangeFinished = ::commit,
+            )
+        }
+        LiquidGlassSlider(
+            label = stringResource(R.string.liquid_specular),
+            value = specular,
+            valueText = String.format(Locale.US, "%.2f", specular),
+            range = 0f..1.5f,
+            step = 0.05f,
+            onValueChange = { specular = it },
+            onValueChangeFinished = ::commit,
+        )
+        LiquidGlassSlider(
+            label = stringResource(R.string.liquid_shininess),
+            value = shininess,
+            valueText = shininess.roundToInt().toString(),
+            range = 8f..256f,
+            step = 1f,
+            onValueChange = { shininess = it },
+            onValueChangeFinished = ::commit,
+        )
+        LiquidGlassSlider(
+            label = stringResource(R.string.liquid_rim),
+            value = rim,
+            valueText = String.format(Locale.US, "%.2f", rim),
+            range = 0f..1.5f,
+            step = 0.05f,
+            onValueChange = { rim = it },
+            onValueChangeFinished = ::commit,
+        )
+    }
+}
+
+/** 滑块行：标签 + 当前值 + Slider（步进吸附，松手回调） */
+@Composable
+private fun LiquidGlassSlider(
+    label: String,
+    value: Float,
+    valueText: String,
+    range: ClosedFloatingPointRange<Float>,
+    step: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = valueText,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = { raw -> onValueChange((raw / step).roundToInt() * step) },
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = range,
+        )
+    }
 }
 
 @Composable

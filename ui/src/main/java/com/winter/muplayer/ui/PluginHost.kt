@@ -2,6 +2,7 @@ package com.winter.muplayer.ui
 
 import android.content.Context
 import com.winter.muplayer.plugin.LuaPluginManager
+import java.io.File
 
 /**
  * 插件系统宿主：应用级单例持有 [LuaPluginManager]。
@@ -19,6 +20,10 @@ object PluginHost {
         if (manager == null) {
             synchronized(this) {
                 if (manager == null) {
+                    // 清理插件安装包临时目录残留（下载 / 本地导入的 zip 均为临时件）
+                    listOf("plugin-downloads", "plugin-import").forEach { name ->
+                        File(context.cacheDir, name).deleteRecursively()
+                    }
                     manager = LuaPluginManager(
                         context.applicationContext,
                         uiBridge = PluginUiHost,

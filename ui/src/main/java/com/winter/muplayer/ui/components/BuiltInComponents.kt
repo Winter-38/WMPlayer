@@ -1,15 +1,33 @@
+/*
+ * 本文件包含基于 Kyant0/AndroidLiquidGlass（Apache License 2.0，Copyright 2025 Kyant）
+ * catalog 示例实现的液态玻璃渲染效果（liquidGlassSurface 及配套参数解析），
+ * 已针对迷你播放栏适配修改；归属声明见仓库 THIRD_PARTY_NOTICES.md。
+ * 本文件其余部分遵循项目 MIT License。
+ */
 package com.winter.muplayer.ui.components
 
 import com.winter.muplayer.config.ComponentRegistry
 import com.winter.muplayer.config.DataBinding
 import com.winter.muplayer.config.LocalComponentCss
 import com.winter.muplayer.config.LocalComponentExtra
+import com.winter.muplayer.config.LocalGlassBackdrop
 import com.winter.muplayer.config.LocalProgress
+import com.winter.muplayer.config.LiquidGlassBackdrop
 import com.winter.muplayer.config.SlotContext
 import com.winter.muplayer.config.isSlotHorizontal
 import com.winter.muplayer.config.isSlotVertical
 import com.winter.muplayer.config.parseCssColor
 import com.winter.muplayer.config.parseCssDp
+import com.winter.muplayer.config.parseCssNumber
+import com.kyant.backdrop.backdrops.emptyBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.highlight.HighlightStyle
+import com.kyant.backdrop.shadow.InnerShadow
+import com.kyant.backdrop.shadow.Shadow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -31,7 +49,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -54,7 +75,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
@@ -153,6 +176,8 @@ private fun SlotContext.AppName() {
     Text(
         text = stringResource(com.winter.muplayer.ui.R.string.app_name),
         fontWeight = FontWeight.Bold,
+        // 应用名与屏幕左边缘之间留出空隙（M3 横向边距惯例）
+        modifier = Modifier.padding(start = 16.dp),
         style = if (fontSize != null) {
             MaterialTheme.typography.titleLarge.copy(fontSize = fontSize.value.sp)
         } else {
@@ -440,10 +465,15 @@ private fun SlotContext.Spacer() {
 
 // ==================== cover ====================
 
-/** 封面底层实现（传显式尺寸，供复合组件内部复用） */
+/** 封面底层实现（传显式尺寸，供复合组件内部复用）—— 显示即按需缓存当前播放封面 */
 @Composable
 private fun SlotContext.cover(size: Dp) {
-    AlbumThumb(albumTrack = playerState.currentTrack, coverCache = coverCache, size = size)
+    val track = playerState.currentTrack
+    val context = LocalContext.current
+    LaunchedEffect(track?.id) {
+        if (track != null) withContext(Dispatchers.IO) { cacheCoverFile(context, track, coverCache) }
+    }
+    AlbumThumb(albumTrack = track, coverCache = coverCache, size = size)
 }
 
 /**
@@ -930,10 +960,15 @@ private fun SlotContext.Playlist() {
 // 与全屏 fp-* 同模式：可单独在 JSON 中引用，也可由 playbar 聚合组装
 // ══════════════════════════════════════════════
 
-/** 封面缩略图（私有实现） */
+/** 封面缩略图（私有实现）：显示即按需缓存当前播放封面 */
 @Composable
 private fun SlotContext.PbCover(size: Dp) {
-    AlbumThumb(albumTrack = playerState.currentTrack, coverCache = coverCache, size = size)
+    val track = playerState.currentTrack
+    val context = LocalContext.current
+    LaunchedEffect(track?.id) {
+        if (track != null) withContext(Dispatchers.IO) { cacheCoverFile(context, track, coverCache) }
+    }
+    AlbumThumb(albumTrack = track, coverCache = coverCache, size = size)
 }
 
 /** 歌曲标题（私有实现）：过长时走马灯滚动显示 */
@@ -1087,57 +1122,248 @@ private fun SlotContext.PbControlsComponent() {
     PbControls(expanded = true)
 }
 
-/** pb-backdrop：迷你播放栏容器背景层（卡片样式，整卡可点击打开全屏播放器） */
-@Composable
-private fun SlotContext.PbBackdrop() {
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        shape = RoundedCornerShape(20.dp),
-        tonalElevation = 4.dp,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        onClick = onOpenFullPlayer,
-    ) {}
+/** 解析 CSS render-style 四态：none（无效果）/ semi-tran（半透明）/ blur（毛玻璃）/ liquid（液态玻璃）。值可能带引号。 */
+private fun glassRenderMode(css: Map<String, String>): String {
+    val v = unquoteCssString(css["render-style"] ?: "")
+    return if (v == "semi-tran" || v == "blur" || v == "liquid") v else "none"
 }
 
-/** 迷你播放栏聚合容器（默认布局）：Surface 卡片 + 按父 slot 方向组装 pb-* 细分组件 */
+/** 液态玻璃视觉参数（CSS #playbar liquid-* / blur-radius；缺失/非法时兜底默认值）。
+ * edge/refraction 为物理像素 px（由 dp 配置经 density 换算）；surfaceAlpha 为表面基色不透明度；
+ * 其余无单位。 */
+private class LiquidGlassCssParams(
+    val blurRadiusPx: Float,
+    val edgeWidthPx: Float,
+    val refractionPx: Float,
+    val surfaceAlpha: Float,
+    val specular: Float,
+    val shininess: Float,
+    val rimStrength: Float,
+    val chromatic: Float,
+)
+
+@Composable
+private fun resolveLiquidGlassParams(css: Map<String, String>): LiquidGlassCssParams {
+    val density = LocalDensity.current
+    return remember(css) {
+        fun dpToPx(value: String?): Float? = value?.let { parseCssDp(it) }?.let { with(density) { it.toPx() } }
+        val blurRadiusPx = dpToPx(css["blur-radius"]) ?: 0f
+        LiquidGlassCssParams(
+            blurRadiusPx = blurRadiusPx,
+            edgeWidthPx = dpToPx(css["liquid-edge"])
+                ?: with(density) { LiquidGlassBackdrop.DEFAULT_EDGE_WIDTH_DP.dp.toPx() },
+            refractionPx = dpToPx(css["liquid-refraction"])
+                ?: with(density) { LiquidGlassBackdrop.DEFAULT_REFRACTION_DP.dp.toPx() },
+            surfaceAlpha = (parseCssNumber(css["liquid-opacity"]) ?: LiquidGlassBackdrop.DEFAULT_SURFACE_ALPHA)
+                .coerceIn(0f, 1f),
+            specular = parseCssNumber(css["liquid-specular"])
+                ?: LiquidGlassBackdrop.DEFAULT_SPECULAR,
+            shininess = parseCssNumber(css["liquid-shininess"])
+                ?: LiquidGlassBackdrop.DEFAULT_SHININESS,
+            rimStrength = parseCssNumber(css["liquid-rim"])
+                ?: LiquidGlassBackdrop.DEFAULT_RIM_STRENGTH,
+            chromatic = (parseCssNumber(css["liquid-chromatic"]) ?: 0f).coerceIn(0f, 1f),
+        )
+    }
+}
+
+/**
+ * 迷你播放栏玻璃表面 —— 基于 AndroidLiquidGlass（`:backdrop` 模块，Kyant backdrop 引擎）：
+ * - liquid 模式：按原版 catalog 示例（LiquidBottomTabs / LiquidButton）组装 ——
+ *   引用被覆盖内容层（captureLiquidGlassContent 录制的 LayerBackdrop），在自身后方
+ *   以正确位置绘制内容层，叠加 vibrancy（增饱和）+ blur + lens（AGSL 折射/色散）
+ *   + 常驻轻高光 + 常驻轻阴影 + 高透半透明基色；
+ * - blur 模式：毛玻璃 —— blur + 半透明基色 + 轻投影 + 常驻轻高光（无折射 / 无增饱和）；
+ * - semi-tran 模式：仅半透明基色 + 轻投影（露出下方清晰内容，不模糊）；
+ * - none：不应用（返回原 modifier，由 Surface 纯色卡片绘制）。
+ */
+@Composable
+private fun Modifier.liquidGlassSurface(mode: String, params: LiquidGlassCssParams): Modifier {
+    if (mode == "none") return this
+
+    val glassBackdrop = LocalGlassBackdrop.current
+    val surface = MaterialTheme.colorScheme.surface
+    val shape = RoundedCornerShape(20.dp)
+    val liquidOn = mode == "liquid"
+    // blur / liquid 都录制内容层；blur-radius=0 时仅录制不模糊（lens 折射不依赖模糊）
+    val contentOn = mode == "blur" || liquidOn
+    val highlightAlpha = params.specular.coerceIn(0f, 1f)
+    // shininess → SDF 高光 falloff：默认 48 对应 Kyant 默认 falloff=1（数值越大越锐利）
+    val falloff = (params.shininess / LiquidGlassBackdrop.DEFAULT_SHININESS).coerceIn(0.1f, 8f)
+    // rim 边缘亮线 alpha（1dp 白边，玻璃边缘标志；默认 0.3，滑块/CSS 可调）
+    val rimAlpha = (params.rimStrength * 0.36f).coerceIn(0f, 1f)
+
+    // blur / liquid 模式：引用内容层（列表层录制）；semi-tran：空背景（半透明透出下方）
+    val backdrop = if (contentOn) {
+        glassBackdrop?.layerBackdrop ?: emptyBackdrop()
+    } else {
+        emptyBackdrop()
+    }
+
+    // 激活状态同步：contentOn 时内容层才录制（captureLiquidGlassContent 依据 active）
+    LaunchedEffect(glassBackdrop, contentOn) {
+        glassBackdrop?.active = contentOn
+    }
+
+    return this.then(
+        Modifier.drawBackdrop(
+            backdrop = backdrop,
+            shape = { shape },
+            effects = {
+                if (contentOn) {
+                    if (liquidOn) vibrancy()
+                    // 模糊半径 > 0 才模糊；blur-radius=0 时仍保留折射/高光（液态玻璃不依赖模糊）
+                    if (params.blurRadiusPx > 0f) blur(params.blurRadiusPx)
+                    if (liquidOn) {
+                        // 原版示例参数（dp 语义）：LiquidBottomTabs lens(24dp, 24dp)、
+                        // LiquidButton lens(12dp, 24dp)；折射作用于 blur 输出（chain 顺序已修复），
+                        // depthEffect 示例默认 false，不传；色散可选
+                        lens(
+                            refractionHeight = params.edgeWidthPx,
+                            refractionAmount = params.refractionPx,
+                            chromaticAberration = params.chromatic > 0f,
+                        )
+                    }
+                }
+            },
+            // 常驻轻高光：blur（毛玻璃）与 liquid（液态玻璃）都有，强度由 liquid-specular 控制，
+            // 可设 0 关闭（示例高光为按压 pressProgress 驱动，mini 播放栏无按压动画，故保留弱常驻版本）
+            highlight = if (contentOn && highlightAlpha > 0f) {
+                {
+                    Highlight.Default.copy(
+                        alpha = highlightAlpha,
+                        style = HighlightStyle.Default(falloff = falloff),
+                    )
+                }
+            } else {
+                null
+            },
+            shadow = {
+                if (liquidOn) {
+                    // 原版 LiquidSlider / LiquidToggle 常驻轻阴影
+                    Shadow(
+                        radius = 4.dp,
+                        color = Color.Black.copy(alpha = 0.05f),
+                    )
+                } else {
+                    // blur / semi-tran：轻投影
+                    Shadow(
+                        radius = 12.dp,
+                        offset = DpOffset(0.dp, 5.dp),
+                        color = Color.Black.copy(alpha = 0.10f),
+                    )
+                }
+            },
+            innerShadow = if (liquidOn) {
+                {
+                    // 常驻弱内阴影：玻璃边缘内凹厚度感（原版示例为按压驱动，mini 栏无按压故弱化常驻）
+                    InnerShadow(
+                        radius = 10.dp,
+                        offset = DpOffset(0.dp, 3.dp),
+                        color = Color.Black.copy(alpha = 0.12f),
+                        alpha = 0.35f,
+                    )
+                }
+            } else {
+                null
+            },
+            onDrawSurface = {
+                // 表面基色不透明度：liquid 由 liquid-opacity 参数控制（默认 0.15，玻璃质感不遮内容）；
+                // blur / semi-tran 用固定 0.45
+                drawRect(surface.copy(alpha = if (liquidOn) params.surfaceAlpha else 0.45f))
+                if (liquidOn) {
+                    // 顶部反光渐变：单一光源自上而下的柔和亮带，增强玻璃表面质感
+                    drawRect(
+                        Brush.verticalGradient(
+                            0f to Color.White.copy(alpha = 0.15f),
+                            0.25f to Color.White.copy(alpha = 0.05f),
+                            0.6f to Color.Transparent,
+                        )
+                    )
+                    // rim 边缘光：1dp 白色细边框，模拟光打在玻璃边缘
+                    if (rimAlpha > 0f) {
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = rimAlpha),
+                            style = Stroke(width = 1.dp.toPx()),
+                            cornerRadius = CornerRadius(20.dp.toPx()),
+                        )
+                    }
+                }
+            },
+        )
+    )
+}
+
+/** pb-backdrop：迷你播放栏容器背景层（卡片样式，整卡可点击打开全屏播放器）。
+ *  CSS 支持：render-style（none 默认 / semi-tran 半透明 / blur 毛玻璃 / liquid 液态玻璃） */
+@Composable
+private fun SlotContext.PbBackdrop() {
+    val css = LocalComponentCss.current
+    val mode = glassRenderMode(css)
+    val params = resolveLiquidGlassParams(css)
+    Surface(
+        modifier = Modifier
+            .fillMaxSize()
+            .liquidGlassSurface(mode, params),
+        shape = RoundedCornerShape(20.dp),
+        tonalElevation = 0.dp,
+        color = if (mode == "none") MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
+        onClick = onOpenFullPlayer,
+    ) {
+        // none：卡片底色由 Surface color 直接提供（无多余背景层，避免容器黑边）
+    }
+}
+
+/** 迷你播放栏聚合容器（默认布局）：Surface 卡片 + 按父 slot 方向组装 pb-* 细分组件。
+ *  CSS 支持：render-style（none 默认 / semi-tran 半透明 / blur 毛玻璃 / liquid 液态玻璃） */
 @Composable
 private fun SlotContext.PlayBar() {
+    val css = LocalComponentCss.current
+    val mode = glassRenderMode(css)
+    val params = resolveLiquidGlassParams(css)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .liquidGlassSurface(mode, params),
         shape = RoundedCornerShape(20.dp),
-        tonalElevation = 4.dp,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 0.dp,
+        color = if (mode == "none") MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
         onClick = onOpenFullPlayer,
     ) {
-        if (isSlotVertical) {
-            // 竖向父 slot → 垂直堆叠：封面→信息→控制
-            Column(
+        // 尺寸由前景内容决定；背景（液态玻璃基色 / 纯色卡片）由 Surface 外层 modifier 绘制
+        Box {
+            // 横向父 slot（含 overlay 浮层，如 app-center 叠放中的 playbar）→ 横向紧凑布局；
+            // 仅纵向父 slot（arrange: column）才切换为竖向堆叠。避免切换渲染样式（线性↔浮层）
+            // 时父 slot 方向变化导致按钮排列误变。
+            if (isSlotVertical && slotArrange != "overlay") {
+                // 竖向父 slot → 垂直堆叠：封面→信息→控制
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    PbCover(80.dp)
+                    PbTitle(modifier = Modifier.padding(top = 8.dp))
+                    PbSubtitle(style = MaterialTheme.typography.bodySmall)
+                    PbControls(expanded = true, modifier = Modifier.padding(top = 12.dp))
+                }
+                return@Box
+            }
+
+            // 横向父 slot → 封面 + 信息（弹性中间列） + 控制按钮
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                PbCover(80.dp)
-                PbTitle(modifier = Modifier.padding(top = 8.dp))
-                PbSubtitle(style = MaterialTheme.typography.bodySmall)
-                PbControls(expanded = true, modifier = Modifier.padding(top = 12.dp))
+                PbCover(56.dp)
+                Spacer(Modifier.width(12.dp))
+                PbTrackInfo(modifier = Modifier.weight(1f))
+                PbControls(expanded = false)
             }
-            return@Surface
-        }
-
-        // 横向父 slot → 封面 + 信息（弹性中间列） + 控制按钮
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PbCover(56.dp)
-            Spacer(Modifier.width(12.dp))
-            PbTrackInfo(modifier = Modifier.weight(1f))
-            PbControls(expanded = false)
         }
     }
 }
@@ -1157,7 +1383,12 @@ private fun SlotContext.FpBackdrop() {
     var coverBitmap by remember(currentTrack?.id, coverCache) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(currentTrack?.id, coverCache) {
         if (blurBackground && currentTrack != null) {
-            val uri = getAlbumArtUri(currentTrack, coverCache)
+            // 按需缓存当前播放封面（使用才缓存，LRU 上限裁剪）
+            withContext(Dispatchers.IO) { cacheCoverFile(context, currentTrack, coverCache) }
+            // 全屏模糊背景：直接使用原始无损封面
+            val uri = com.winter.muplayer.ui.components.getAlbumArtUri(
+                currentTrack, coverCache, preferOriginal = true
+            )
             if (uri != null) {
                 try {
                     val loader = coil.ImageLoader(context)
@@ -1223,7 +1454,12 @@ private fun SlotContext.FpCover() {
             lastCoverUri = null
             return@LaunchedEffect
         }
-        val uri: Any? = getAlbumArtUri(track, coverCache)
+        // 按需缓存当前播放封面（使用才缓存，LRU 上限裁剪）
+        withContext(Dispatchers.IO) { cacheCoverFile(context, track, coverCache) }
+        // 全屏主封面：直接使用原始无损封面
+        val uri: Any? = com.winter.muplayer.ui.components.getAlbumArtUri(
+            track, coverCache, preferOriginal = true
+        )
         if (coverState?.first == track.id && lastCoverUri == uri) return@LaunchedEffect
         val loaded = if (uri != null) {
             withContext(Dispatchers.IO) {

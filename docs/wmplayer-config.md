@@ -612,6 +612,36 @@ animation: <name> <duration> [easing]
 "playbar"
 ```
 
+**渲染样式（CSS `render-style`，四态，设置页可切换）：**
+
+| 值 | 效果 |
+|----|------|
+| `none`（默认） | 不透明卡片，线性独立栏 |
+| `semi-tran` | 半透明浮层（露出下方内容，不模糊） |
+| `blur` | 毛玻璃（内容实时模糊 + 半透明表面 + 常驻轻高光，无折射） |
+| `liquid` | 液态玻璃（按原版示例组装：vibrancy + blur(8dp) + lens(28dp, 36dp) 折射/色散 + 常驻轻高光 + 轻阴影） |
+
+```css
+#playbar { render-style: liquid; blur-radius: 8dp; }
+```
+
+`blur` / `liquid` / `semi-tran` 需要 overlay 布局（`app-center` 内叠放 playbar），设置页切换样式时自动改写 `main.json`。
+
+**玻璃参数（CSS `#playbar`，设置页滑块写入；毛玻璃与液态玻璃模式均显示参数块，模糊度/高光两模式共用，折射相关仅液态玻璃生效）：**
+
+| 属性 | 默认 | 说明 |
+|------|------|------|
+| `blur-radius` | `8dp`（liquid）/ `12dp`（blur） | 模糊半径（dp 语义，设置页滑块可调，毛玻璃/液态玻璃共用） |
+| `liquid-edge` | `28dp` | 边缘隆起宽度（折射带，dp 语义，边缘一圈折射、中心清晰） |
+| `liquid-refraction` | `36dp` | 折射强度（dp 语义，原版示例值调高） |
+| `liquid-opacity` | `0.15` | 表面基色不透明度（0..1，越小越透明） |
+| `liquid-specular` | `0.45` | 高光强度（无单位） |
+| `liquid-shininess` | `48` | 高光锐度（无单位） |
+| `liquid-rim` | `0.3` | rim 边缘亮线强度（无单位） |
+| `liquid-chromatic` | `0` | 色散强度 0..1（默认关闭，CSS 手配） |
+
+液态玻璃（liquid）模式还常驻内阴影（玻璃厚度感）与顶部反光渐变，随参数块一并生效；`none` 模式为纯色卡片（无多余背景层）。
+
 #### spacer
 
 弹性空白占位组件，自身不渲染内容，`weight` 由 CSS 控制，用于把相邻组件推到两端。

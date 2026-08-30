@@ -19,6 +19,7 @@
 - **CSS 引擎** — 多级样式：主界面（`.main`）与全屏播放器（`.full-player`）方向独立互不影响，slot 级排列 + 组件级样式；属性覆盖尺寸、颜色、间距、对齐、动画等
 - **全屏播放器** — 细分组件组装：主封面、标题、歌手+专辑、进度条、播放操控按钮、封面模糊背景
 - **顶部迷你播放栏** — 底部常驻迷你播放栏
+- **液态玻璃效果** — mini 播放栏支持四态渲染样式（`render-style`：不透明卡片 / 半透明浮层 / 毛玻璃（仅模糊）/ 液态玻璃），液态玻璃按原版 AndroidLiquidGlass 示例组装（vibrancy + blur + lens 折射/色散 + 高光 + 内阴影 + 边缘亮线，基于 Kyant backdrop 引擎 `:backdrop` 模块），毛玻璃与液态玻璃相互独立；模糊度、折射、表面不透明度、高光等均可在设置页滑块实时调节，CSS `liquid-*` 参数可调
 - **搜索** — 本地曲库搜索
 - **设置** — 基础设置页面，支持「重新读取配置」热重载布局配置
 - **多语言** — 中文/英文资源支持
@@ -116,3 +117,5 @@ Release APK 自动复制到 `release/` 目录。
 ## 许可证
 
 MIT License
+
+本项目使用 Kyant0/AndroidLiquidGlass（Apache License 2.0）实现液态玻璃效果：`backdrop/` 模块为其 backdrop 库移植版，`ui` 模块的液态玻璃渲染参考其 catalog 示例实现。第三方组件归属与许可证全文见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

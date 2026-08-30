@@ -3,6 +3,7 @@ package com.winter.muplayer.ui.browser
 import com.winter.muplayer.core.SettingsManager
 import com.winter.muplayer.ui.R
 
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,6 +44,23 @@ class MusicBrowserState(
             _sortAsc.value = value
             settings?.sortAsc = value
         }
+
+    /**
+     * 列表滚动状态（全局共享）：backdrop-blur 毛玻璃镜像与主列表绑定同一实例，滚动实时同步。
+     * 重建实例 = 强制回到顶部（新实例必然从位置 0 开始）。
+     */
+    var listState by mutableStateOf(LazyListState())
+        private set
+
+    /** 滚动代数：递增触发依赖 listState 的组件重组 */
+    var scrollGeneration by mutableStateOf(0)
+        private set
+
+    /** 排序 / 数据变化 → 回到顶部（机制上排除任何位置恢复/漂移的可能） */
+    fun resetListScroll() {
+        scrollGeneration++
+        listState = LazyListState()
+    }
 }
 
 // ==================== 分类枚举 ====================

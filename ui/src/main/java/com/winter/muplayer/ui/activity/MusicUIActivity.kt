@@ -73,6 +73,9 @@ import com.winter.muplayer.config.SlotRenderer
 import com.winter.muplayer.config.ComponentEntry
 import com.winter.muplayer.config.CssRuleTable
 import com.winter.muplayer.config.StyleConfigLoader
+import com.winter.muplayer.config.LiquidGlassBackdrop
+import com.winter.muplayer.config.parseCssNumber
+import com.winter.muplayer.config.parseCssDp
 import com.winter.muplayer.ui.PluginUiOverlay
 import com.winter.muplayer.ui.components.registerBuiltInComponents
 import com.winter.muplayer.ui.components.ParticleBurstHost
@@ -85,7 +88,8 @@ import com.winter.muplayer.ui.components.globalTapParticles
 import com.winter.muplayer.ui.R
 import com.winter.muplayer.ui.browser.TrackRow
 import com.winter.muplayer.ui.components.getAlbumArtUri
-import com.winter.muplayer.ui.components.cacheCoverFiles
+import com.winter.muplayer.ui.components.cacheCoverFile
+import com.winter.muplayer.ui.components.trimCoverCache
 import com.winter.muplayer.ui.browser.LocalBrowserState
 import com.winter.muplayer.ui.browser.MusicBrowserState
 import com.winter.muplayer.ui.screens.SettingsScreen
@@ -363,6 +367,37 @@ fun MusicPlayerApp(
     val configState by configLoader.config.collectAsState()
     val cssRules by configLoader.cssRules.collectAsState()
 
+    // 迷你播放栏渲染样式：唯一事实来源 = styles.css 中 #playbar / #pb-backdrop 的 render-style
+    // 四态：none（无效果）/ semi-tran（半透明）/ blur（毛玻璃）/ liquid（液态玻璃）
+    val miniRenderStyle = remember(cssRules) {
+        val v = cssRules.rules["#playbar"]?.get("render-style")
+            ?: cssRules.rules["#pb-backdrop"]?.get("render-style")
+        val s = v?.trim()?.trim('"')?.trim('\'')
+        if (s == "semi-tran" || s == "blur" || s == "liquid") s else "none"
+    }
+
+    // 液态玻璃视觉参数：唯一事实来源 = styles.css 中 #playbar 的 liquid-*（缺失时兜底默认值）
+    // edge/refraction 为 dp 语义（原版示例同源），滑块直接读写 dp 值
+    val liquidGlassParams = remember(cssRules) {
+        val r = cssRules.rules["#playbar"].orEmpty()
+        com.winter.muplayer.ui.screens.LiquidGlassParams(
+            blurRadiusDp = r["blur-radius"]?.let { parseCssDp(it).value }
+                ?: LiquidGlassBackdrop.DEFAULT_BLUR_RADIUS_DP,
+            edgeWidthDp = r["liquid-edge"]?.let { parseCssDp(it).value }
+                ?: LiquidGlassBackdrop.DEFAULT_EDGE_WIDTH_DP,
+            refractionDp = r["liquid-refraction"]?.let { parseCssDp(it).value }
+                ?: LiquidGlassBackdrop.DEFAULT_REFRACTION_DP,
+            surfaceAlpha = (parseCssNumber(r["liquid-opacity"])
+                ?: LiquidGlassBackdrop.DEFAULT_SURFACE_ALPHA).coerceIn(0f, 1f),
+            specular = parseCssNumber(r["liquid-specular"])
+                ?: LiquidGlassBackdrop.DEFAULT_SPECULAR,
+            shininess = parseCssNumber(r["liquid-shininess"])
+                ?: LiquidGlassBackdrop.DEFAULT_SHININESS,
+            rimStrength = parseCssNumber(r["liquid-rim"])
+                ?: LiquidGlassBackdrop.DEFAULT_RIM_STRENGTH,
+        )
+    }
+
     LaunchedEffect(Unit) {
         configLoader.initialize()  // 写入默认配置（如需）+ 从磁盘重载
     }
@@ -405,9 +440,10 @@ fun MusicPlayerApp(
         }
         musicPlayerCore.restorePlaybackState(allTracks)
 
-        // 4. 封面缓存（后台不阻塞）
+        // 4. 封面缓存：不再全量预缓存（仅在使用封面的组件处按需缓存，LRU 上限裁剪），
+        //    这里只裁剪旧缓存并统计大小供设置页显示
         launch(Dispatchers.IO) {
-            cacheCoverFiles(context, allTracks, coverCache)
+            trimCoverCache(context)
             withContext(Dispatchers.Main) {
                 coverCacheSize = computeCoverCacheSize(context)
             }
@@ -438,9 +474,9 @@ fun MusicPlayerApp(
                         // 先显示歌单
                         browserState.tracks = tracks
                         browserState.isLoading = false
-                        // 封面缓存放后台
+                        // 封面缓存：按需（显示处触发）+ LRU 裁剪，这里只统计大小
                         launch(Dispatchers.IO) {
-                            cacheCoverFiles(context, tracks, coverCache)
+                            trimCoverCache(context)
                             withContext(Dispatchers.Main) {
                                 coverCacheSize = computeCoverCacheSize(context)
                             }
@@ -489,6 +525,20 @@ fun MusicPlayerApp(
                         com.winter.muplayer.ui.R.string.config_reloaded,
                         Toast.LENGTH_SHORT
                     ).show()
+                },
+                // 迷你播放栏渲染样式三态：none / semi-tran / blur，切换即写 CSS + 按需切布局并热重载
+                miniRenderStyle = miniRenderStyle,
+                onMiniRenderStyleChange = { style ->
+                    configLoader.setMiniRenderStyle(style)
+                    configLoader.reload()
+                },
+                // 液态玻璃参数：滑块松手时写 CSS（#playbar liquid-*）+ 热重载生效
+                liquidGlassParams = liquidGlassParams,
+                onLiquidGlassParamsChange = { p ->
+                    configLoader.setLiquidGlassParams(
+                        p.blurRadiusDp, p.edgeWidthDp, p.refractionDp, p.surfaceAlpha, p.specular, p.shininess, p.rimStrength,
+                    )
+                    configLoader.reload()
                 }
             )
         }
@@ -757,7 +807,7 @@ fun FullPlayerPanel(
     isVisible: Boolean = true,
     playerState: PlayerStateData,
     playMode: PlayMode,
-    coverCache: Map<Long, String>,
+    coverCache: MutableMap<Long, String>,
     blurBackground: Boolean = false,
     adaptiveTintStyle: com.winter.muplayer.core.SettingsManager.AdaptiveTintStyle =
         com.winter.muplayer.core.SettingsManager.AdaptiveTintStyle.MONOCHROME,
@@ -797,7 +847,8 @@ fun FullPlayerPanel(
     var coverBitmap by remember(blurBackground, currentTrack?.id) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(blurBackground, currentTrack?.id) {
         if (blurBackground && currentTrack != null) {
-            val uri = getAlbumArtUri(currentTrack, coverCache)
+            // 全屏模糊背景：直接使用原始无损封面
+            val uri = getAlbumArtUri(currentTrack, coverCache, preferOriginal = true)
             if (uri != null) {
                 val loader = coil.ImageLoader(currentContext)
                 val request = ImageRequest.Builder(currentContext)
@@ -1425,7 +1476,8 @@ fun formatDuration(durationMs: Long): String {
 
 // ==================== 辅助函数 ====================
 
-// cacheCoverFiles 已迁移到 com.winter.muplayer.ui.components.Utils.kt
+// 封面缓存已改为按需单曲缓存（cacheCoverFile/trimCoverCache，见 Utils.kt）：
+// 不再全量预缓存，仅在使用封面的组件处缓存并受 LRU 上限裁剪。
 
 /**
  * 计算封面缓存目录的大小，返回人类可读的字符串。

@@ -9,6 +9,8 @@ gradle/wrapper/gradle-wrapper.jar
 *.log
 /.codewhale/
 /.deepseek/
+/.cache/
+# 项目内缓存目录（第三方参考源码等，不入库）
 /release/
 *.jks
 *.keystore

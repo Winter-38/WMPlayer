@@ -43,6 +43,7 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":config"))
     implementation(project(":plugin"))
+    implementation(project(":backdrop"))
     implementation(libs.luaj.jse)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.material3)

@@ -47,9 +47,10 @@ object LayoutParser {
     /**
      * 已知的 slot 型（容器）组件 id —— 作为 slot / 容器名出现时解析为容器组件：
      * 自身渲染为背景层（fillMaxSize），children 作为前景层叠加。
-     * 当前：`fp-backdrop`（全屏封面模糊背景层）、`pb-backdrop`（迷你播放栏卡片背景层）。
+     * 当前：`fp-backdrop`（全屏封面模糊背景层）、`pb-backdrop`（迷你播放栏卡片背景层）、
+     * `backdrop-blur`（毛玻璃镜像容器：children 双渲染，背景为模糊镜像）。
      */
-    val SLOT_COMPONENT_IDS: Set<String> = setOf("fp-backdrop", "pb-backdrop")
+    val SLOT_COMPONENT_IDS: Set<String> = setOf("fp-backdrop", "pb-backdrop", "backdrop-blur")
 
     /** 匿名容器组件 id：渲染时未注册 → 背景层透明，仅前景 children 显示 */
     const val ANONYMOUS_CONTAINER = "__slot__"

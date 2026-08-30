@@ -352,6 +352,24 @@ fun parseCssDp(value: String): androidx.compose.ui.unit.Dp {
     return (num ?: 0f).dp
 }
 
+/** 解析 CSS 长度值为 Float px：`24px`/`16dp` → 24f/16f，纯数字 → 同值；无法解析 → null。
+ *  （供液态玻璃等需要原始 px 数值、而非 Compose Dp 的属性使用。） */
+fun parseCssPxFloat(value: String?): Float? {
+    if (value == null) return null
+    val trimmed = value.trim()
+    return when {
+        trimmed.endsWith("px") -> trimmed.removeSuffix("px").trim().toFloatOrNull()
+        trimmed.endsWith("dp") -> trimmed.removeSuffix("dp").trim().toFloatOrNull()
+        else -> trimmed.toFloatOrNull()
+    }
+}
+
+/** 解析 CSS 无单位数值：`0.55` → 0.55f；无法解析 → null。 */
+fun parseCssNumber(value: String?): Float? {
+    if (value == null) return null
+    return value.trim().toFloatOrNull()
+}
+
 private fun parseDurationMs(value: String): Int {
     val trimmed = value.trim()
     return when {

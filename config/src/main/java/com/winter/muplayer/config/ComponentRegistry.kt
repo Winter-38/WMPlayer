@@ -26,7 +26,8 @@ class SlotContext(
     // ── 歌单 ──
     val localMusicList: List<Track>,
     val isLoadingLocal: Boolean,
-    val coverCache: Map<Long, String>,
+    /** 封面缓存（trackId → 本地原始封面文件路径）；组件可在此按需写入（仅缓存使用中的封面） */
+    val coverCache: MutableMap<Long, String>,
     val musicPlayerCore: MusicPlayerCore,
     val onPlayTrackSmart: (Track, List<Track>) -> Unit,
     // ── 播放控制 ──
