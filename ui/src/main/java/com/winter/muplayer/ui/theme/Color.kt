@@ -3,11 +3,11 @@ package com.winter.muplayer.ui.theme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 
-val primaryLight = Color(0xFF829EF3)
-val onPrimaryLight = Color(0xFF2A4998)
+val primaryLight = Color(0xFF445E91)
+val onPrimaryLight = Color(0xFFFFFFFF)
 val primaryContainerLight = Color(0xFFDBE1FF)
 val onPrimaryContainerLight = Color(0xFF00174B)
-val secondaryLight = Color(0xFF585E72)
+val secondaryLight = Color(0xFF5C6277)
 val onSecondaryLight = Color(0xFFFFFFFF)
 val secondaryContainerLight = Color(0xFFDDE1F9)
 val onSecondaryContainerLight = Color(0xFF161B2C)

@@ -93,6 +93,7 @@ import com.winter.muplayer.ui.components.trimCoverCache
 import com.winter.muplayer.ui.browser.LocalBrowserState
 import com.winter.muplayer.ui.browser.MusicBrowserState
 import com.winter.muplayer.ui.screens.SettingsScreen
+import com.winter.muplayer.ui.screens.LayoutEditorScreen
 import com.winter.muplayer.ui.theme.AppTheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.unit.dp
@@ -344,6 +345,7 @@ fun MusicPlayerApp(
 
     var showSettings by remember { mutableStateOf(false) }
     var showFullPlayer by remember { mutableStateOf(false) }
+    var showLayoutEditor by remember { mutableStateOf(false) }
 
     // 布局调试开关：true 时 SlotRenderer 显示 slot/组件之间的边界（调试布局用，完成后请改回 false）
     val isDebug = false
@@ -539,7 +541,29 @@ fun MusicPlayerApp(
                         p.blurRadiusDp, p.edgeWidthDp, p.refractionDp, p.surfaceAlpha, p.specular, p.shininess, p.rimStrength,
                     )
                     configLoader.reload()
-                }
+                },
+                // 布局与样式编辑器入口
+                onOpenLayoutEditor = { showLayoutEditor = true },
+            )
+        }
+
+        // 布局与样式编辑器（覆盖在设置页之上，从右滑入）
+        AnimatedVisibility(
+            visible = showLayoutEditor,
+            enter = slideInHorizontally(animationSpec = tween(300)) { it } + fadeIn(tween(200)),
+            exit = slideOutHorizontally(animationSpec = tween(280)) { it } + fadeOut(tween(160)),
+        ) {
+            BackHandler { showLayoutEditor = false }
+            LayoutEditorScreen(
+                onBack = { showLayoutEditor = false },
+                configLoader = configLoader,
+                musicPlayerCore = musicPlayerCore,
+                browserState = browserState,
+                coverCache = coverCache,
+                playerState = playerState,
+                playMode = playMode,
+                blurBackground = blurBackground,
+                adaptiveTintStyle = adaptiveTintStyle,
             )
         }
 

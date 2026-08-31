@@ -582,7 +582,16 @@ animation: <name> <duration> [easing]
 
 #### tab-bar
 
-音乐分类标签栏（全部/歌手/专辑），始终竖向排列为 FilterChip 列表。
+音乐分类标签栏（全部/歌手/专辑）。CSS 属性控制形态：
+
+- `display: column` → 竖向 FilterChip 胶囊堆叠
+- `style: pills` → 横向胶囊 FilterChip 行（原默认样式）
+- 缺省或 `style: tabs` → 横向 PrimaryTabRow 标签栏（默认样式，底部指示器）
+
+```css
+#tab-bar { }                /* 默认标签栏样式 */
+#tab-bar { style: pills; }  /* 胶囊行样式 */
+```
 
 ```json
 "tab-bar"
@@ -604,6 +613,25 @@ animation: <name> <duration> [easing]
 "playlist"
 ```
 
+**条目样式（CSS `#playlist` 的 `item-*` 属性）：**
+
+| 属性 | 说明 |
+|------|------|
+| `item-bg` / `item-background` | 条目背景色（hex / rgb() / rgba()） |
+| `item-radius` | 条目圆角 |
+| `item-color` / `item-text-color` | 歌名颜色 |
+| `item-font-size` | 歌名字号 |
+| `item-sub-color` | 歌手 • 专辑颜色 |
+| `item-sub-size` | 副文字字号 |
+| `item-font-family` | 字体族（serif / monospace / cursive） |
+| `item-layout` | 条目布局：`list`（横向行，封面左/文字右，默认）或 `grid`（封面卡片：封面在上，下方曲名 + 歌手名） |
+| `item-columns` | grid 布局列数（默认 2，范围 1..6） |
+
+```css
+/* 封面卡片网格：两列，封面在上、曲名与歌手名在下 */
+#playlist { item-layout: grid; item-columns: 2; item-radius: 14px; }
+```
+
 #### playbar
 
 底部迷你播放栏。显示当前歌曲封面、标题、上一首/播放暂停/下一首/列表按钮。
@@ -616,7 +644,7 @@ animation: <name> <duration> [easing]
 
 | 值 | 效果 |
 |----|------|
-| `none`（默认） | 不透明卡片，线性独立栏 |
+| `none`（默认） | 不透明悬浮卡片（overlay 叠放，与其他样式布局一致） |
 | `semi-tran` | 半透明浮层（露出下方内容，不模糊） |
 | `blur` | 毛玻璃（内容实时模糊 + 半透明表面 + 常驻轻高光，无折射） |
 | `liquid` | 液态玻璃（按原版示例组装：vibrancy + blur(8dp) + lens(28dp, 36dp) 折射/色散 + 常驻轻高光 + 轻阴影） |
@@ -625,7 +653,7 @@ animation: <name> <duration> [easing]
 #playbar { render-style: liquid; blur-radius: 8dp; }
 ```
 
-`blur` / `liquid` / `semi-tran` 需要 overlay 布局（`app-center` 内叠放 playbar），设置页切换样式时自动改写 `main.json`。
+所有渲染样式（含 `none`）统一使用 overlay 布局（`app-center` 内叠放 playbar，播放栏悬浮叠加在内容之上）；设置页切换样式或启动初始化时自动改写 `main.json`，线性旧布局会自动升级为 overlay。
 
 **玻璃参数（CSS `#playbar`，设置页滑块写入；毛玻璃与液态玻璃模式均显示参数块，模糊度/高光两模式共用，折射相关仅液态玻璃生效）：**
 

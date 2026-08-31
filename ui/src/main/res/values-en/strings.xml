@@ -169,4 +169,48 @@
     <!-- ==================== Plugin Manager ==================== -->
     <string name="audio_permission_required">Permission required to read local music</string>
     <string name="cancel">Cancel</string>
+    <string name="confirm">OK</string>
+
+    <!-- ==================== Layout & Style Editor ==================== -->
+    <string name="layout_editor">Layout Editor</string>
+    <string name="layout_editor_subtitle">Customize layout &amp; style live</string>
+    <string name="layout_editor_tab_layout">Layout</string>
+    <string name="layout_editor_tab_style">Style</string>
+    <string name="layout_editor_reset">Reset Defaults</string>
+    <string name="layout_editor_reset_confirm">This will overwrite the current layout and style with defaults. Continue?</string>
+    <string name="layout_editor_preview">Live Preview</string>
+    <string name="layout_editor_show_preview">Preview</string>
+    <string name="layout_editor_preview_main">Main</string>
+    <string name="layout_editor_preview_full">Fullscreen</string>
+    <string name="layout_editor_tip_layout">Tap a slot or component to edit its style; long-press and drag a component or slot to reorder; components can be added or removed — changes apply live</string>
+    <string name="layout_editor_main_slots">Main Screen Slots</string>
+    <string name="layout_editor_full_player">Fullscreen Player</string>
+    <string name="layout_editor_edit_style">Edit style</string>
+    <string name="layout_editor_empty_slot">No components in this slot</string>
+    <string name="layout_editor_expand">Expand</string>
+    <string name="layout_editor_collapse">Collapse</string>
+    <string name="layout_editor_add_component">Add Component</string>
+    <string name="layout_editor_add_slot">Add Slot</string>
+    <string name="layout_editor_slot_name_hint">Slot name (e.g. my-slot)</string>
+    <string name="layout_editor_add_selector">New Selector</string>
+    <string name="layout_editor_selector_name_hint">Start with . or # (e.g. .app-top / #playbar)</string>
+    <string name="layout_editor_delete_title">Confirm Delete</string>
+    <string name="layout_editor_delete_component">Delete component "%1$s"?</string>
+    <string name="layout_editor_delete_slot">Delete slot "%1$s" and its style?</string>
+    <string name="layout_editor_delete_selector">Delete style "%1$s"?</string>
+    <string name="layout_editor_clear_all">Clear all styles</string>
+    <string name="layout_editor_common_props">Common Properties</string>
+    <string name="layout_editor_advanced_props">Advanced</string>
+    <string name="layout_editor_advanced_hint">Add any CSS property manually</string>
+    <string name="layout_editor_clear">Clear</string>
+    <string name="layout_editor_unset">Not set</string>
+    <string name="layout_editor_prop_key">Property</string>
+    <string name="layout_editor_prop_value">Value</string>
+    <string name="layout_editor_input_hint">Enter value…</string>
+    <string name="layout_editor_cid">Instance ID (cid)</string>
+    <string name="layout_editor_cid_hint">Leave empty to use component default style</string>
+    <string name="layout_editor_color_hint">e.g. #FF0000 / red / rgb()</string>
+    <string name="layout_editor_style_slots">Slot Styles</string>
+    <string name="layout_editor_style_components">Component Styles</string>
+    <string name="layout_editor_tip_style">Tap any selector to edit its style — changes apply live</string>
 </resources>

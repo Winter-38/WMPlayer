@@ -61,6 +61,8 @@ fun SettingsScreen(
     onCrossfadeChange: (Int) -> Unit = {},
     onLanguageChange: () -> Unit = {},
     onReloadConfig: () -> Unit = {},
+    // 布局与样式编辑器入口
+    onOpenLayoutEditor: () -> Unit = {},
     // 迷你播放栏渲染样式：none（无效果）/ semi-tran（半透明）/ blur（毛玻璃），状态读自 CSS、切换写 CSS
     miniRenderStyle: String = "none",
     onMiniRenderStyleChange: (String) -> Unit = {},
@@ -156,6 +158,14 @@ fun SettingsScreen(
                     subtitle = null,
                     onClick = onReloadConfig,
                     showArrow = false
+                )
+            }
+            item {
+                SettingsActionItem(
+                    title = stringResource(R.string.layout_editor),
+                    subtitle = stringResource(R.string.layout_editor_subtitle),
+                    onClick = onOpenLayoutEditor,
+                    showArrow = true
                 )
             }
 
@@ -395,38 +405,68 @@ private fun BlurBackgroundSetting(settings: SettingsManager, onSettingChanged: (
 
 @Composable
 private fun MiniBlurSetting(style: String, onChange: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
     val options = listOf(
         "none" to stringResource(R.string.mini_blur_none),
         "semi-tran" to stringResource(R.string.mini_blur_semi),
         "blur" to stringResource(R.string.mini_blur_blur),
         "liquid" to stringResource(R.string.mini_blur_liquid),
     )
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-    ) {
-        Text(
-            text = stringResource(R.string.mini_blur_background),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = stringResource(R.string.mini_blur_background_subtitle),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            options.forEach { (value, label) ->
-                FilterChip(
-                    selected = style == value,
-                    onClick = { onChange(value) },
-                    label = { Text(label) },
-                    modifier = Modifier.weight(1f),
-                )
+    val currentLabel = options.firstOrNull { it.first == style }?.second ?: options[0].second
+    SettingsClickItem(
+        title = stringResource(R.string.mini_blur_background),
+        subtitle = currentLabel,
+        onClick = { expanded = true },
+    )
+    if (expanded) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { expanded = false }) {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        stringResource(R.string.mini_blur_background),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    options.forEach { (value, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onChange(value)
+                                    expanded = false
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = value == style,
+                                onClick = {
+                                    onChange(value)
+                                    expanded = false
+                                }
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { expanded = false }) {
+                        Text(stringResource(R.string.close))
+                    }
+                }
             }
         }
     }

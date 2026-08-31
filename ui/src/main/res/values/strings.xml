@@ -170,4 +170,48 @@
     <!-- ==================== 插件管理 ==================== -->
     <string name="audio_permission_required">需要音频权限才能读取本地音乐</string>
     <string name="cancel">取消</string>
+    <string name="confirm">确定</string>
+
+    <!-- ==================== 布局与样式编辑器 ==================== -->
+    <string name="layout_editor">布局编辑器</string>
+    <string name="layout_editor_subtitle">实时自定义布局与样式</string>
+    <string name="layout_editor_tab_layout">布局</string>
+    <string name="layout_editor_tab_style">样式</string>
+    <string name="layout_editor_reset">重置默认</string>
+    <string name="layout_editor_reset_confirm">将覆盖当前布局与样式并恢复默认，确定继续？</string>
+    <string name="layout_editor_preview">实时预览</string>
+    <string name="layout_editor_show_preview">预览</string>
+    <string name="layout_editor_preview_main">主界面</string>
+    <string name="layout_editor_preview_full">全屏</string>
+    <string name="layout_editor_tip_layout">点击区域或组件可编辑样式；长按组件或区域可拖拽排序；组件可增删，所有修改实时生效</string>
+    <string name="layout_editor_main_slots">主界面区域</string>
+    <string name="layout_editor_full_player">全屏播放器</string>
+    <string name="layout_editor_edit_style">编辑样式</string>
+    <string name="layout_editor_empty_slot">此区域暂无组件</string>
+    <string name="layout_editor_expand">展开</string>
+    <string name="layout_editor_collapse">收起</string>
+    <string name="layout_editor_add_component">添加组件</string>
+    <string name="layout_editor_add_slot">添加区域</string>
+    <string name="layout_editor_slot_name_hint">区域名称（如 my-slot）</string>
+    <string name="layout_editor_add_selector">新建选择器</string>
+    <string name="layout_editor_selector_name_hint">以 . 或 # 开头（如 .app-top / #playbar）</string>
+    <string name="layout_editor_delete_title">确认删除</string>
+    <string name="layout_editor_delete_component">删除组件「%1$s」？</string>
+    <string name="layout_editor_delete_slot">删除区域「%1$s」及其样式？</string>
+    <string name="layout_editor_delete_selector">删除样式「%1$s」？</string>
+    <string name="layout_editor_clear_all">清除全部样式</string>
+    <string name="layout_editor_common_props">常用属性</string>
+    <string name="layout_editor_advanced_props">高级属性</string>
+    <string name="layout_editor_advanced_hint">手动添加任意 CSS 属性</string>
+    <string name="layout_editor_clear">清除</string>
+    <string name="layout_editor_unset">未设置</string>
+    <string name="layout_editor_prop_key">属性名</string>
+    <string name="layout_editor_prop_value">属性值</string>
+    <string name="layout_editor_input_hint">输入值…</string>
+    <string name="layout_editor_cid">实例标识（cid）</string>
+    <string name="layout_editor_cid_hint">留空 = 使用组件默认样式</string>
+    <string name="layout_editor_color_hint">如 #FF0000 / red / rgb()</string>
+    <string name="layout_editor_style_slots">区域样式</string>
+    <string name="layout_editor_style_components">组件样式</string>
+    <string name="layout_editor_tip_style">点击任意选择器编辑样式，修改实时生效</string>
 </resources>

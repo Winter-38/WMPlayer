@@ -33,6 +33,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +57,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -84,6 +87,7 @@ import coil.request.ImageRequest
 import coil.size.Size
 import com.winter.muplayer.ui.browser.AlbumThumb
 import com.winter.muplayer.ui.browser.getAlbumArtUri
+import com.winter.muplayer.ui.browser.ItemLayout
 import com.winter.muplayer.ui.browser.ItemStyle
 import com.winter.muplayer.ui.browser.LocalBrowserState
 import com.winter.muplayer.ui.browser.MusicBrowserList
@@ -628,14 +632,16 @@ private fun SlotContext.ProgressSliderComponent() {
 // ==================== tab-bar ====================
 
 /**
- * Tab 栏组件。CSS 属性 `display` 控制布局：
+ * Tab 栏组件。CSS 属性控制形态：
  * - `display: column` → 竖向 FilterChip 堆叠
- * - 缺省或其他值       → 横向 PrimaryTabRow 标签栏
+ * - `style: pills`    → 横向胶囊 FilterChip 行（原默认样式）
+ * - 缺省或 `style: tabs` → 横向 PrimaryTabRow 标签栏（默认样式）
  */
 @Composable
 private fun SlotContext.TabBar() {
     val state = LocalBrowserState.current
     val css = LocalComponentCss.current
+    val variant = unquoteCssString(css["style"] ?: "")
     if (css["display"] == "column") {
         // 竖向堆叠（FilterChip）
         Column(
@@ -666,8 +672,39 @@ private fun SlotContext.TabBar() {
                 )
             }
         }
+    } else if (variant == "pills") {
+        // 显式胶囊样式：横向胶囊 FilterChip 行（只保留分类图标，紧凑胶囊 + 整行均匀分布）
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            MusicCategory.entries.forEach { category ->
+                val (burst, burstModifier) = rememberParticleBurstEffect(color = MaterialTheme.colorScheme.primary)
+                val icon = when (category) {
+                    MusicCategory.ALL -> R.drawable.ic_library_music
+                    MusicCategory.ARTIST -> R.drawable.ic_person
+                    MusicCategory.ALBUM -> R.drawable.ic_disc
+                }
+                FilterChip(
+                    selected = state.selectedCategory == category,
+                    onClick = {
+                        burst.burst()
+                        state.selectedCategory = category
+                    },
+                    label = {
+                        Icon(
+                            painterResource(icon),
+                            contentDescription = category.displayName(),
+                            modifier = Modifier.size(22.dp),
+                        )
+                    },
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.then(burstModifier),
+                )
+            }
+        }
     } else {
-        // 横向标签栏（PrimaryTabRow）
+        // 默认 / style: tabs：横向 PrimaryTabRow 标签栏（底部指示器）
         PrimaryTabRow(
             selectedTabIndex = state.selectedCategory.ordinal,
             modifier = Modifier.fillMaxWidth()
@@ -731,6 +768,7 @@ private fun SlotContext.TrackCountSummary(modifier: Modifier = Modifier) {
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SlotContext.Sort() {
     val state = LocalBrowserState.current
@@ -740,22 +778,34 @@ private fun SlotContext.Sort() {
         stringResource(R.string.sort_file_size),
         stringResource(R.string.sort_date_added)
     )
-    var showSortMenu by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
     val (sortBurst, sortBurstModifier) = rememberParticleBurstEffect(color = MaterialTheme.colorScheme.primary)
+
+    // 边框实时变化：菜单展开时 primary 高亮加粗，收起时 outlineVariant 常规；动画平滑过渡
+    val borderColor by animateColorAsState(
+        targetValue = if (expanded) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.outlineVariant,
+        animationSpec = tween(durationMillis = 150),
+        label = "sortBorderColor",
+    )
+    val borderWidth by animateDpAsState(
+        targetValue = if (expanded) 1.5.dp else 1.dp,
+        animationSpec = tween(durationMillis = 150),
+        label = "sortBorderWidth",
+    )
+
     Row(
         modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         TrackCountSummary(modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(8.dp))
         Box {
-            // 紧凑 M3 风格排序触发器：Surface 胶囊 + outline 边框 + 下拉箭头。
-            // 注意：不用 Surface(onClick) 重载——它内部会强制 minimumInteractiveComponentSize
-            // （48dp 触摸目标）撑高容器，导致 vertical padding 调整不生效；
-            // 改为普通 Surface（纯装饰）+ 内部 Row 挂 clickable，高度完全由内容决定。
+            // M3 排序触发器：胶囊按钮 + 动态边框 + 箭头（展开时旋转）
             Surface(
                 shape = FilterChipDefaults.shape,
                 color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                border = BorderStroke(borderWidth, borderColor),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -763,7 +813,7 @@ private fun SlotContext.Sort() {
                         .then(sortBurstModifier)
                         .clickable {
                             sortBurst.burst()
-                            showSortMenu = true
+                            expanded = true
                         }
                         .padding(horizontal = 12.dp, vertical = 4.dp),
                 ) {
@@ -776,22 +826,62 @@ private fun SlotContext.Sort() {
                     Icon(
                         painter = painterResource(R.drawable.ic_arrow_drop_down),
                         contentDescription = stringResource(R.string.sort_label),
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier
+                            .size(16.dp)
+                            .rotate(if (expanded) 180f else 0f),
                     )
                 }
             }
-            DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+
+            // M3 标准下拉菜单：锚定触发器，点击外部/菜单项后自动关闭
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
                 sortNames.forEachIndexed { i, name ->
+                    val selected = state.sortField == i
                     DropdownMenuItem(
-                        text = { Text(name, fontWeight = if (state.sortField == i) FontWeight.Bold else FontWeight.Normal) },
-                        onClick = { state.sortField = i; showSortMenu = false },
-                        trailingIcon = { if (state.sortField == i) Text("✓", fontWeight = FontWeight.Bold) }
+                        text = {
+                            Text(
+                                text = name,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        },
+                        onClick = {
+                            state.sortField = i
+                            expanded = false
+                        },
+                        trailingIcon = {
+                            if (selected) {
+                                Text(
+                                    text = "✓",
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        },
                     )
                 }
                 HorizontalDivider()
                 DropdownMenuItem(
-                    text = { Text(if (state.sortAsc) stringResource(R.string.sort_asc) else stringResource(R.string.sort_desc), fontWeight = FontWeight.Bold) },
-                    onClick = { state.sortAsc = !state.sortAsc; showSortMenu = false }
+                    text = {
+                        Text(
+                            text = if (state.sortAsc) stringResource(R.string.sort_asc)
+                            else stringResource(R.string.sort_desc),
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
+                    onClick = {
+                        state.sortAsc = !state.sortAsc
+                        expanded = false
+                    },
+                    trailingIcon = {
+                        Text(
+                            text = if (state.sortAsc) "↑" else "↓",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    },
                 )
             }
         }
@@ -813,6 +903,12 @@ private fun parseItemStyle(css: Map<String, String>): ItemStyle = ItemStyle(
     subSize = css["item-sub-size"]?.let { parseCssDp(it) }
         ?.takeIf { it.value > 0f }?.value?.sp,
     fontFamily = css["item-font-family"]?.let { parseFontFamily(it) },
+    // 封面卡片网格：item-layout: grid（list 默认）；item-columns 控制列数（1..6）
+    layout = when (css["item-layout"]?.trim()) {
+        "grid", "card" -> ItemLayout.GRID
+        else -> ItemLayout.LIST
+    },
+    columns = (css["item-columns"]?.trim()?.toIntOrNull() ?: 2).coerceIn(1, 6),
 )
 
 /** 解析字体族：serif / monospace / cursive，sans-serif 或无效值返回 null（主题默认） */
@@ -984,7 +1080,7 @@ private fun SlotContext.PbTitle(modifier: Modifier = Modifier) {
         modifier = modifier.basicMarquee(
             iterations = Int.MAX_VALUE,
             animationMode = MarqueeAnimationMode.Immediately,
-            spacing = MarqueeSpacing(0.dp),
+            spacing = MarqueeSpacing(24.dp),
             repeatDelayMillis = 1000,
             velocity = 40.dp,
         ),
@@ -1175,11 +1271,22 @@ private fun resolveLiquidGlassParams(css: Map<String, String>): LiquidGlassCssPa
  *   + 常驻轻高光 + 常驻轻阴影 + 高透半透明基色；
  * - blur 模式：毛玻璃 —— blur + 半透明基色 + 轻投影 + 常驻轻高光（无折射 / 无增饱和）；
  * - semi-tran 模式：仅半透明基色 + 轻投影（露出下方清晰内容，不模糊）；
- * - none：不应用（返回原 modifier，由 Surface 纯色卡片绘制）。
+ * - none：不透明悬浮卡片（纯色底 + 与其它模式一致的轻投影，保持悬浮观感）。
  */
 @Composable
 private fun Modifier.liquidGlassSurface(mode: String, params: LiquidGlassCssParams): Modifier {
-    if (mode == "none") return this
+    if (mode == "none") {
+        // 不透明卡片也悬浮：叠加与 blur/semi-tran 一致的轻投影（12dp 圆角阴影）
+        return this.then(
+            Modifier.shadow(
+                elevation = 12.dp,
+                shape = RoundedCornerShape(20.dp),
+                clip = false,
+                ambientColor = Color.Black.copy(alpha = 0.10f),
+                spotColor = Color.Black.copy(alpha = 0.10f),
+            )
+        )
+    }
 
     val glassBackdrop = LocalGlassBackdrop.current
     val surface = MaterialTheme.colorScheme.surface
@@ -1551,7 +1658,7 @@ private fun SlotContext.FpTrackTitle() {
         modifier = Modifier.basicMarquee(
             iterations = Int.MAX_VALUE,
             animationMode = MarqueeAnimationMode.Immediately,
-            spacing = MarqueeSpacing(0.dp),
+            spacing = MarqueeSpacing(24.dp),
             repeatDelayMillis = 1000,
             velocity = 40.dp,
         ),

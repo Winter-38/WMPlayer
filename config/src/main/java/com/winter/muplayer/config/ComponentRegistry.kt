@@ -90,6 +90,9 @@ object ComponentRegistry {
     /** 是否已注册（供渲染器回退判定，如 # 前缀的插件组件引用）。 */
     fun isRegistered(id: String): Boolean = registry.containsKey(id)
 
+    /** 已注册组件 id 列表（供布局编辑器“添加组件”时选择，含插件注册的组件）。 */
+    fun registeredIds(): List<String> = registry.keys.sorted()
+
     /** 根据 ID 渲染组件，modifier 包裹组件（来自 CSS 样式）；未注册时静默跳过 */
     @Composable
     fun render(id: String, modifier: Modifier = Modifier) {

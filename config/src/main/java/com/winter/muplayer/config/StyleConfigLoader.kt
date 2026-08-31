@@ -70,6 +70,17 @@ class StyleConfigLoader(private val context: Context) {
             return
         }
 
+        // 线性默认布局 → 统一升级为 overlay 浮层（播放栏叠加在 app-center 内容之上，
+        // none 也悬浮，与其他渲染样式布局一致）
+        val mainFile = File(configDir, "main.json")
+        if (mainFile.isFile && isLinearDefaultMain(try { mainFile.readText() } catch (_: Exception) { "" })) {
+            if (ensureMiniLayout()) {
+                ConfigPreload.config = null
+                reload()
+                return
+            }
+        }
+
         // 缓存已在启动预加载中命中 → 直接用，不解析布局文件
         if (ConfigPreload.config != null) return
 
@@ -82,6 +93,42 @@ class StyleConfigLoader(private val context: Context) {
             _cssRules.value = cached.second
         } else {
             reload()
+        }
+    }
+
+    /**
+     * 保存完整布局到 main.json（布局编辑器使用）。
+     * 编辑器负责提供扁平化后的全量布局文本（无 include 引用），
+     * 保存后调用方应 [reload] 使改动生效。
+     */
+    fun saveLayoutJson(text: String) {
+        try {
+            val dir = configDir
+            dir.mkdirs()
+            File(dir, "main.json").writeText(text)
+        } catch (e: Exception) {
+            android.util.Log.w("StyleConfig", "saveLayoutJson failed: ${e.message}")
+        }
+    }
+
+    /**
+     * 保存完整样式到 styles.css（布局编辑器使用）。
+     * 编辑器写回的是全量合并表（含其他 .css 文件贡献的规则），因此把 config/ 下
+     * 其余 .css 重命名为 .bak 隔离 —— 否则目录扫描会再次加载旧文件并可能覆盖编辑结果。
+     * 保存后调用方应 [reload] 使改动生效。
+     */
+    fun saveStylesCss(text: String) {
+        try {
+            val dir = configDir
+            dir.mkdirs()
+            File(dir, "styles.css").writeText(text)
+            dir.listFiles { f -> f.isFile && f.extension == "css" && f.name != "styles.css" }
+                ?.forEach { f ->
+                    val bak = File(dir, f.name + ".bak")
+                    if (!bak.exists()) f.renameTo(bak)
+                }
+        } catch (e: Exception) {
+            android.util.Log.w("StyleConfig", "saveStylesCss failed: ${e.message}")
         }
     }
 
@@ -155,7 +202,7 @@ class StyleConfigLoader(private val context: Context) {
 
     /**
      * 设置迷你播放栏渲染样式（写入 styles.css + 按需切换布局），设置页三态切换：
-     * - `none`      无效果：线性布局（app-bottom 独立栏），不透明卡片（原样式）；
+     * - `none`      无效果：overlay 浮层（不透明卡片悬浮，与其他样式布局一致）；
      * - `semi-tran` 半透明：overlay 浮层 + 半透明表面（露出下方内容，不模糊）；
      * - `blur`      毛玻璃：overlay 浮层 + 液态玻璃引擎（AndroidLiquidGlass：内容实时 blur +
      *                lens 折射/色散 + 高光 + 阴影）+ 半透明表面。
@@ -163,8 +210,8 @@ class StyleConfigLoader(private val context: Context) {
      */
     fun setMiniRenderStyle(style: String) {
         val normalized = if (style == "semi-tran" || style == "blur" || style == "liquid") style else "none"
-        // 1) 布局：半透明 / 毛玻璃 / 液态玻璃都需要浮层（效果可见）；无效果回到线性独立栏
-        ensureMiniLayout(normalized)
+        // 布局：所有样式（含 none）统一 overlay 浮层，播放栏始终叠加在内容之上
+        ensureMiniLayout()
         // 2) CSS：render-style + 模糊半径（写在 #playbar，由 playbar 组件读取）
         val cssFile = File(configDir, "styles.css")
         if (!cssFile.isFile) return
@@ -235,14 +282,14 @@ class StyleConfigLoader(private val context: Context) {
 
     /**
      * 确保 main.json 布局与所选样式匹配：
-     * - blur / semi-tran → overlay 浮层（playbar 盖在列表上，效果可见）；
-     * - none → 线性（app-bottom 独立栏，原样式）。
+     * 所有渲染样式（含 none）统一使用 overlay 浮层布局 —— 播放栏叠加在 app-center 内容之上，
+     * 保持悬浮观感（none 为不透明悬浮卡片，semi-tran/blur/liquid 为玻璃浮层）。
      * 仅当 main.json 是默认变体（线性 / 新两层 overlay / 旧三层 overlay）时自动切换；
      * 旧三层 overlay（含 backdrop-blur 兄弟镜像层）**强制迁移**为两层 —— 否则残留的
      * 全屏镜像层会盖住列表导致无法滑动、毛玻璃渲染异常。用户自定义布局不动。
      * 返回是否发生了切换。
      */
-    private fun ensureMiniLayout(style: String): Boolean {
+    private fun ensureMiniLayout(): Boolean {
         val mainFile = File(configDir, "main.json")
         if (!mainFile.isFile) return false
         val text = try { mainFile.readText() } catch (_: Exception) { return false }
@@ -250,17 +297,16 @@ class StyleConfigLoader(private val context: Context) {
         val isLegacyOverlay = text.contains("backdrop-blur") // 旧三层（含 backdrop-blur 兄弟镜像层）
         val isNewOverlay = !isLegacyOverlay && isDefaultOverlay(text) // 新两层（content + playbar）
         if (!isLinear && !isLegacyOverlay && !isNewOverlay) return false // 用户自定义布局：不自动改
-        val wantOverlay = style == "semi-tran" || style == "blur" || style == "liquid"
-        if (wantOverlay && isNewOverlay) return false // 已是最新两层 overlay
-        if (!wantOverlay && isLinear) return false     // 已是线性
+        // 所有渲染样式（含 none）都使用 overlay 浮层布局：播放栏始终叠加在内容之上
+        if (isNewOverlay) return false // 已是最新两层 overlay
         return try {
-            mainFile.writeText(if (wantOverlay) overlayMainJson() else defaultMainJson())
+            mainFile.writeText(overlayMainJson())
             // 同步 styles.css：.app-center 方向 + playbar 浮层定位
             val cssFile = File(configDir, "styles.css")
             if (cssFile.isFile) {
                 var css = cssFile.readText()
-                css = setCssProperty(css, ".app-center", "arrange", if (wantOverlay) "overlay" else "column")
-                if (wantOverlay) css = setCssProperty(css, "#playbar", "align", "bottom-center")
+                css = setCssProperty(css, ".app-center", "arrange", "overlay")
+                css = setCssProperty(css, "#playbar", "align", "bottom-center")
                 cssFile.writeText(css)
             }
             true
