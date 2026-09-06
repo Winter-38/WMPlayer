@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.winter.muplayer.model.Track
+import com.winter.muplayer.ui.components.rememberFingerBurst
 
 // 分类枚举移至 MusicBrowserState.kt
 
@@ -171,6 +172,11 @@ fun ArtistSection(
     itemStyle: ItemStyle = ItemStyle()
 ) {
     var expanded by remember { mutableStateOf(false) }
+    // 分组头点击粒子：显式触发（点击必有），爆发点优先手指按下位置
+    val (burst, fingerMod) = rememberFingerBurst(
+        color = MaterialTheme.colorScheme.primary,
+        radius = 48.dp,
+    )
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Card(
             colors = CardDefaults.cardColors(
@@ -181,9 +187,10 @@ fun ArtistSection(
             modifier = Modifier.fillMaxWidth()
         ) {
             Surface(
-                onClick = { expanded = !expanded },
+                onClick = { burst.burst(); expanded = !expanded },
                 color = Color.Transparent,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.then(fingerMod),
             ) {
                 Row(
                     modifier = Modifier
@@ -302,6 +309,11 @@ fun AlbumSection(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val albumTrack = tracks.firstOrNull()
+    // 分组头点击粒子：显式触发（点击必有），爆发点优先手指按下位置
+    val (burst, fingerMod) = rememberFingerBurst(
+        color = MaterialTheme.colorScheme.primary,
+        radius = 48.dp,
+    )
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Card(
@@ -313,9 +325,10 @@ fun AlbumSection(
             modifier = Modifier.fillMaxWidth()
         ) {
             Surface(
-                onClick = { expanded = !expanded },
+                onClick = { burst.burst(); expanded = !expanded },
                 color = Color.Transparent,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.then(fingerMod),
             ) {
                 Row(
                     modifier = Modifier
@@ -410,14 +423,20 @@ fun TrackRow(
     onLongClick: () -> Unit = {},
     itemStyle: ItemStyle = ItemStyle()
 ) {
+    // 歌曲行点击粒子：显式触发（点击 / 长按必有），爆发点优先手指按下位置
+    val (burst, fingerMod) = rememberFingerBurst(
+        color = MaterialTheme.colorScheme.primary,
+        radius = 48.dp,
+    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 3.dp)
             .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick,
-            ),
+                onClick = { burst.burst(); onClick() },
+                onLongClick = { burst.burst(); onLongClick() },
+            )
+            .then(fingerMod),
         shape = RoundedCornerShape(itemStyle.radius ?: 12.dp),
         colors = CardDefaults.cardColors(
             containerColor = itemStyle.background
@@ -488,13 +507,19 @@ fun TrackCard(
     itemStyle: ItemStyle = ItemStyle(),
 ) {
     val shape = RoundedCornerShape(itemStyle.radius ?: 12.dp)
+    // 歌曲卡片点击粒子：显式触发（点击 / 长按必有），爆发点优先手指按下位置
+    val (burst, fingerMod) = rememberFingerBurst(
+        color = MaterialTheme.colorScheme.primary,
+        radius = 48.dp,
+    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick,
-            ),
+                onClick = { burst.burst(); onClick() },
+                onLongClick = { burst.burst(); onLongClick() },
+            )
+            .then(fingerMod),
         shape = shape,
         colors = CardDefaults.cardColors(
             containerColor = itemStyle.background
@@ -713,6 +738,13 @@ fun MusicBrowserList(
             visibleSortAsc = state.sortAsc
             if (sortChanged) state.resetListScroll()
             listAlpha.animateTo(1f, tween(durationMillis = CategoryFadeInMillis))
+        } else if (listAlpha.value < 1f) {
+            // 快速连点 tab / 排序：上一轮切换动画（淡出/淡入）尚未完成时，本协程因
+            // key 变化被取消，listAlpha 会停留在取消瞬间的半途值。若此时点回的是当前
+            // 正在显示的内容（categoryChanged / sortChanged 均为 false），旧逻辑什么都不做，
+            // 透明度会永久卡在半途 —— 淡出末段被取消时列表将近乎不可见。
+            // 内容并未真正切换，直接恢复完全不透明，保证列表始终可见。
+            listAlpha.snapTo(1f)
         }
     }
 

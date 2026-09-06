@@ -50,7 +50,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -115,6 +114,10 @@ import com.winter.muplayer.model.PlayerStateData
 import com.winter.muplayer.ui.R
 import com.winter.muplayer.ui.browser.LocalBrowserState
 import com.winter.muplayer.ui.browser.MusicBrowserState
+import com.winter.muplayer.ui.components.ParticleAlertDialog
+import com.winter.muplayer.ui.components.ParticleBurstStyle
+import com.winter.muplayer.ui.components.ParticleModalSheet
+import com.winter.muplayer.ui.components.rememberParticleBurstEffect
 import com.winter.muplayer.ui.components.LocalParticleBurstEnabled
 import com.winter.muplayer.ui.components.LocalParticleBurstHost
 import kotlin.math.roundToInt
@@ -796,7 +799,7 @@ fun LayoutEditorScreen(
             is DeleteRequest.Slot -> stringResource(R.string.layout_editor_delete_slot, req.label)
             is DeleteRequest.Selector -> stringResource(R.string.layout_editor_delete_selector, req.label)
         }
-        AlertDialog(
+        ParticleAlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(stringResource(R.string.layout_editor_delete_title)) },
             text = { Text(message) },
@@ -813,7 +816,7 @@ fun LayoutEditorScreen(
 
     // ══ 重置确认 ══
     if (showResetDialog) {
-        AlertDialog(
+        ParticleAlertDialog(
             onDismissRequest = { showResetDialog = false },
             title = { Text(stringResource(R.string.layout_editor_reset)) },
             text = { Text(stringResource(R.string.layout_editor_reset_confirm)) },
@@ -1510,6 +1513,7 @@ private fun DragReorder(
                                 val coords = itemCoords
                                 val burstHost = hostState
                                 if (coords != null && burstHost != null && enabled) {
+                                    // 拖拽落位反馈：固定光点爆发样式（不随点击粒子样式设置变化）
                                     burstHost.addBurst(
                                         color = burstColorState,
                                         center = coords.localToRoot(
@@ -1517,6 +1521,7 @@ private fun DragReorder(
                                         ),
                                         radiusPx = with(densityState) { 72.dp.toPx() },
                                         durationMillis = 480,
+                                        style = ParticleBurstStyle.DOT,
                                     )
                                 }
                                 onMove(from, to)
@@ -1821,10 +1826,14 @@ private fun AddMenu(
     onAddArea: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    // 菜单项选择后菜单立即关闭（Popup 粒子无法在其内显示），在“+”按钮处播放粒子反馈
+    val (addBurst, addBurstModifier) = rememberParticleBurstEffect(color = MaterialTheme.colorScheme.primary)
     Box {
         TextButton(
-            onClick = { expanded = true },
-            modifier = Modifier.heightIn(min = 36.dp),
+            onClick = { addBurst.burst(); expanded = true },
+            modifier = Modifier
+                .heightIn(min = 36.dp)
+                .then(addBurstModifier),
             contentPadding = PaddingValues(horizontal = 10.dp),
         ) {
             Text("+", style = MaterialTheme.typography.titleMedium)
@@ -1832,11 +1841,11 @@ private fun AddMenu(
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.layout_editor_add_component)) },
-                onClick = { expanded = false; onAddComponent() },
+                onClick = { addBurst.burst(); expanded = false; onAddComponent() },
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.layout_editor_add_slot)) },
-                onClick = { expanded = false; onAddArea() },
+                onClick = { addBurst.burst(); expanded = false; onAddArea() },
             )
         }
     }
@@ -1905,9 +1914,8 @@ private fun StyleEditorSheet(
 
     fun commit() = onPropsChange(target.selector, props)
 
-    // skipPartiallyExpanded：一次弹出到全高（不做两段展开）；下滑（dragHandle）即可收回
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    // skipPartiallyExpanded 由 ParticleModalSheet 内部处理（一次弹出到全高，下滑收回）
+    ParticleModalSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2364,7 +2372,7 @@ private fun AddComponentDialog(
     onPick: (String) -> Unit,
 ) {
     val components = remember { ComponentRegistry.registeredIds() }
-    AlertDialog(
+    ParticleAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.layout_editor_add_component)) },
         text = {
@@ -2401,7 +2409,7 @@ private fun NameInputDialog(
     onConfirm: (String) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
-    AlertDialog(
+    ParticleAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {

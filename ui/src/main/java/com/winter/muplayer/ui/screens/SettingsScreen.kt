@@ -9,17 +9,22 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import com.winter.muplayer.ui.PluginHost
 import com.winter.muplayer.ui.R
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -27,6 +32,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.winter.muplayer.config.LiquidGlassBackdrop
 import com.winter.muplayer.core.SettingsManager
+import com.winter.muplayer.ui.components.ParticleDialog
+import com.winter.muplayer.ui.components.ParticleLayer
+import com.winter.muplayer.ui.components.ParticleBurstStyle
+import com.winter.muplayer.ui.components.particleStyleFromSettings
 import kotlin.math.roundToInt
 import java.util.Locale
 
@@ -139,6 +148,8 @@ fun SettingsScreen(
             }
             item { AdaptiveTintSetting(settings, onSettingChanged) }
             item { ParticleEffectSetting(settings, onSettingChanged) }
+            item { ParticleStyleSetting(settings, onSettingChanged) }
+            item { ParticleColorSetting(settings, onSettingChanged) }
 
             // ========== 音乐扫描 ==========
             item { SectionHeader(stringResource(R.string.section_scan)) }
@@ -323,7 +334,7 @@ private fun ThemeModeSetting(settings: SettingsManager, onSettingChanged: () -> 
         onClick = { expanded = true }
     )
     if (expanded) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { expanded = false }) {
+        ParticleDialog(onDismissRequest = { expanded = false }) {
             Card(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
@@ -419,7 +430,7 @@ private fun MiniBlurSetting(style: String, onChange: (String) -> Unit) {
         onClick = { expanded = true },
     )
     if (expanded) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { expanded = false }) {
+        ParticleDialog(onDismissRequest = { expanded = false }) {
             Card(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
@@ -644,7 +655,7 @@ private fun AdaptiveTintSetting(settings: SettingsManager, onSettingChanged: () 
         onClick = { expanded = true }
     )
     if (expanded) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { expanded = false }) {
+        ParticleDialog(onDismissRequest = { expanded = false }) {
             Card(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
@@ -710,6 +721,180 @@ private fun ParticleEffectSetting(settings: SettingsManager, onSettingChanged: (
         checked = enabled,
         onCheckedChange = { enabled = it; settings.particleEffectEnabled = it; onSettingChanged() }
     )
+}
+
+@Composable
+private fun ParticleStyleSetting(settings: SettingsManager, onSettingChanged: () -> Unit) {
+    var style by remember { mutableStateOf(particleStyleFromSettings(settings.particleStyle)) }
+    var expanded by remember { mutableStateOf(false) }
+    val styleNames = mapOf(
+        ParticleBurstStyle.DOT to stringResource(R.string.particle_style_dot),
+        ParticleBurstStyle.TECH_FRAMES to stringResource(R.string.particle_style_tech),
+        ParticleBurstStyle.RIPPLE to stringResource(R.string.particle_style_ripple),
+    )
+
+    SettingsClickItem(
+        title = stringResource(R.string.particle_style),
+        subtitle = styleNames[style] ?: style.name,
+        onClick = { expanded = true }
+    )
+    if (expanded) {
+        ParticleDialog(onDismissRequest = { expanded = false }) {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        stringResource(R.string.particle_style),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    ParticleBurstStyle.entries.forEach { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    style = item
+                                    settings.particleStyle = item.ordinal
+                                    onSettingChanged()
+                                    expanded = false
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = item == style,
+                                onClick = {
+                                    style = item
+                                    settings.particleStyle = item.ordinal
+                                    onSettingChanged()
+                                    expanded = false
+                                }
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = styleNames[item] ?: item.name,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { expanded = false }) {
+                        Text(stringResource(R.string.close))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 固定色板候选色（ARGB）：白 / 红 / 橙 / 黄 / 绿 / 青 / 蓝 / 靛 / 紫 / 粉 / 浅橙 / 黑 */
+private val ParticlePresetColors = listOf(
+    Color(0xFFFFFFFF), Color(0xFFF44336), Color(0xFFFF9800), Color(0xFFFFEB3B),
+    Color(0xFF4CAF50), Color(0xFF00BCD4), Color(0xFF2196F3), Color(0xFF3F51B5),
+    Color(0xFF9C27B0), Color(0xFFE91E63), Color(0xFFFFA726), Color(0xFF000000),
+)
+
+@Composable
+private fun ParticleColorSetting(settings: SettingsManager, onSettingChanged: () -> Unit) {
+    var mode by remember { mutableStateOf(settings.particleColorMode) }
+    var color by remember { mutableStateOf(settings.particleColor) }
+    var expanded by remember { mutableStateOf(false) }
+
+    fun commit(m: Int, c: Int) {
+        mode = m
+        color = c
+        settings.particleColorMode = m
+        settings.particleColor = c
+        onSettingChanged()
+    }
+
+    val subtitle = if (mode == 1) {
+        String.format(Locale.US, "#%06X", color and 0xFFFFFF)
+    } else {
+        stringResource(R.string.particle_color_auto)
+    }
+
+    SettingsClickItem(
+        title = stringResource(R.string.particle_color),
+        subtitle = subtitle,
+        onClick = { expanded = true }
+    )
+    if (expanded) {
+        ParticleDialog(onDismissRequest = { expanded = false }) {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        stringResource(R.string.particle_color),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    // 自动：跟随界面渲染色 / 主题色
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { commit(0, color) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = mode == 0, onClick = { commit(0, color) })
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = stringResource(R.string.particle_color_auto),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                    // 固定色板
+                    ParticlePresetColors.chunked(6).forEach { rowColors ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            rowColors.forEach { preset ->
+                                val presetArgb = preset.toArgb()
+                                val selected = mode == 1 && color == presetArgb
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .background(preset, CircleShape)
+                                        .then(
+                                            if (selected) Modifier.border(
+                                                2.dp,
+                                                MaterialTheme.colorScheme.primary,
+                                                CircleShape,
+                                            ) else Modifier
+                                        )
+                                        .clickable { commit(1, presetArgb) }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { expanded = false }) {
+                        Text(stringResource(R.string.close))
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -883,7 +1068,7 @@ private fun LanguageSetting(settings: SettingsManager, onLanguageChange: () -> U
         onClick = { expanded = true }
     )
     if (expanded) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { expanded = false }) {
+        ParticleDialog(onDismissRequest = { expanded = false }) {
             Card(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(

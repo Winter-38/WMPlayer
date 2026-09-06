@@ -80,8 +80,15 @@ import com.winter.muplayer.ui.PluginUiOverlay
 import com.winter.muplayer.ui.components.registerBuiltInComponents
 import com.winter.muplayer.ui.components.ParticleBurstHost
 import com.winter.muplayer.ui.components.ParticleBurstHostState
+import com.winter.muplayer.ui.components.ParticleAlertDialog
+import com.winter.muplayer.ui.components.ParticleLayer
+import com.winter.muplayer.ui.components.ParticleModalSheet
 import com.winter.muplayer.ui.components.LocalParticleBurstHost
 import com.winter.muplayer.ui.components.LocalParticleBurstEnabled
+import com.winter.muplayer.ui.components.LocalParticleBurstStyle
+import com.winter.muplayer.ui.components.LocalParticleColorOverride
+import com.winter.muplayer.ui.components.particleStyleFromSettings
+import com.winter.muplayer.ui.components.rememberFingerBurst
 import com.winter.muplayer.ui.components.RenderedColorRegistry
 import com.winter.muplayer.ui.components.LocalRenderedColorRegistry
 import com.winter.muplayer.ui.components.globalTapParticles
@@ -95,11 +102,11 @@ import com.winter.muplayer.ui.browser.MusicBrowserState
 import com.winter.muplayer.ui.screens.SettingsScreen
 import com.winter.muplayer.ui.screens.LayoutEditorScreen
 import com.winter.muplayer.ui.theme.AppTheme
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -132,6 +139,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -258,6 +266,9 @@ class MusicUIActivity : ComponentActivity() {
             var currentBlurBg by remember { mutableStateOf(settings.blurBackground) }
             var currentAdaptiveTintStyle by remember { mutableStateOf(settings.adaptiveTintStyle) }
             var currentParticleBurst by remember { mutableStateOf(settings.particleEffectEnabled) }
+            var currentParticleStyle by remember { mutableStateOf(settings.particleStyle) }
+            var currentParticleColorMode by remember { mutableStateOf(settings.particleColorMode) }
+            var currentParticleColor by remember { mutableStateOf(settings.particleColor) }
 
             // 全局粒子宿主：在根部创建并提供给 CompositionLocal，
             // 所有按钮（ParticleBurstBox）才能读到并发射粒子
@@ -269,6 +280,9 @@ class MusicUIActivity : ComponentActivity() {
             CompositionLocalProvider(
                 LocalParticleBurstHost provides particleBurstHost,
                 LocalParticleBurstEnabled provides currentParticleBurst,
+                LocalParticleBurstStyle provides particleStyleFromSettings(currentParticleStyle),
+                LocalParticleColorOverride provides
+                    (if (currentParticleColorMode == 1) Color(currentParticleColor) else null),
                 LocalRenderedColorRegistry provides renderedColorRegistry,
             ) {
             AppTheme(
@@ -297,6 +311,9 @@ class MusicUIActivity : ComponentActivity() {
                                 currentBlurBg = settings.blurBackground
                                 currentAdaptiveTintStyle = settings.adaptiveTintStyle
                                 currentParticleBurst = settings.particleEffectEnabled
+                                currentParticleStyle = settings.particleStyle
+                                currentParticleColorMode = settings.particleColorMode
+                                currentParticleColor = settings.particleColor
                             })
                         // 全局粒子层：挂载在最上层，粒子可遮挡其他按钮（仅视觉）
                         ParticleBurstHost(hostState = particleBurstHost, modifier = Modifier.matchParentSize())
@@ -925,6 +942,10 @@ fun FullPlayerPanel(
         blurBackground = blurBackground,
     )
 
+    // 全屏播放器整体放入独立粒子层：按钮等自触发粒子在面板内可见，不依赖主窗口粒子层；
+    // autoTap=true —— 面板空白点击由本层（layerHost）兜底：其渲染色命中判定按粒子宿主层过滤，
+    // 不会误命中本层之下被盖住的主界面列表行渲染色（否则面板中部点击会被全局层误跳过、无特效）。
+    ParticleLayer(modifier = Modifier.fillMaxSize(), autoTap = true) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -976,6 +997,7 @@ fun FullPlayerPanel(
             outerArrange = css.rules[".full-player"]?.get("arrange"),
         )
     }
+    }
 }
 
 // ==================== 播放队列面板（BottomSheet） ====================
@@ -993,54 +1015,51 @@ fun QueueSheet(
     onTrackLongPress: (Track) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
+    ParticleModalSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-        ) {
-            // 标题栏
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp, horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 16.dp)
             ) {
-                Text(
-                    text = stringResource(R.string.current_playlist),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-                if (queue.isNotEmpty()) {
-                    TextButton(onClick = onClearQueue) {
-                        Text(stringResource(R.string.clear))
+                // 标题栏
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.current_playlist),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (queue.isNotEmpty()) {
+                        TextButton(onClick = onClearQueue) {
+                            Text(stringResource(R.string.clear))
+                        }
                     }
                 }
+
+                val isCurrentlyDark = isSystemInDarkTheme()
+
+                // 队列列表
+                PlayQueueSection(
+                    queue = queue,
+                    currentIndex = currentIndex,
+                    coverCache = coverCache,
+                    onPlayTrack = onPlayTrack,
+                    onRemoveTrack = onRemoveTrack,
+                    onClearQueue = {}, // 已在上方处理
+                    onTrackLongPress = onTrackLongPress,
+                    modifier = Modifier.heightIn(max = 500.dp)
+                )
+
+                Spacer(Modifier.height(32.dp))
             }
-
-            val isCurrentlyDark = isSystemInDarkTheme()
-
-            // 队列列表
-            PlayQueueSection(
-                queue = queue,
-                currentIndex = currentIndex,
-                coverCache = coverCache,
-                onPlayTrack = onPlayTrack,
-                onRemoveTrack = onRemoveTrack,
-                onClearQueue = {}, // 已在上方处理
-                onTrackLongPress = onTrackLongPress,
-                modifier = Modifier.heightIn(max = 500.dp)
-            )
-
-            Spacer(Modifier.height(32.dp))
-        }
     }
 }
 
@@ -1171,6 +1190,7 @@ fun ControlButton(
 
 // ==================== 播放队列视图 ====================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PlayQueueSection(
     queue: List<QueueEntry>,
@@ -1211,16 +1231,27 @@ fun PlayQueueSection(
                     items = queue,
                     key = { index, entry -> "${entry.track.id}_$index" }
                 ) { index, entry ->
-                    QueueTrackItem(
-                        track = entry.track,
-                        index = index,
-                        isCurrentTrack = index == currentIndex,
-                        coverCache = coverCache,
-                        onPlay = { onPlayTrack(index) },
-                        onRemove = { onRemoveTrack(index) },
-                        onLongPress = { onTrackLongPress(entry.track) }
-                    )
-                    Spacer(Modifier.height(4.dp))
+                    // animateItem：队列增删 / 当前条目前移时其它行平滑重排（无弹性，避免"抖"）
+                    Box(
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = tween(180),
+                                placementSpec = tween(240),
+                                fadeOutSpec = tween(150),
+                            )
+                            .fillMaxWidth()
+                    ) {
+                        QueueTrackItem(
+                            track = entry.track,
+                            index = index,
+                            isCurrentTrack = index == currentIndex,
+                            coverCache = coverCache,
+                            onPlay = { onPlayTrack(index) },
+                            onRemove = { onRemoveTrack(index) },
+                            onLongPress = { onTrackLongPress(entry.track) }
+                        )
+                        Spacer(Modifier.height(4.dp))
+                    }
                 }
             }
         }
@@ -1257,12 +1288,43 @@ fun QueueTrackItem(
         label = "exitAlpha"
     )
 
+    // ── 当前播放切换过渡：正在播放的条目从 A 切到 B 时，旧行高亮淡出、新行高亮淡入 ──
+    // 竖条 / 行背景 / 标题文字颜色都做渐变动画（切歌时不再瞬时跳变）
+    val scheme = MaterialTheme.colorScheme
+    // 柔和高亮：当前播放行的背景不用饱和的 primaryContainer 整块填充，
+    // 而是与普通行底色 secondaryContainer 做低比例混合，视觉更柔和；
+    // 标题文字也用常规 onSurface（不再用高对比 onPrimaryContainer）
+    val barColor by animateColorAsState(
+        targetValue = if (isCurrentTrack) scheme.primary else Color.Transparent,
+        animationSpec = tween(260),
+        label = "playingBar"
+    )
+    val cardBg by animateColorAsState(
+        targetValue = if (isCurrentTrack)
+            lerp(scheme.secondaryContainer, scheme.primaryContainer, 0.35f)
+        else scheme.secondaryContainer,
+        animationSpec = tween(260),
+        label = "playingCardBg"
+    )
+    val titleColor by animateColorAsState(
+        targetValue = if (isCurrentTrack) scheme.onSurface
+        else scheme.onSurfaceVariant,
+        animationSpec = tween(260),
+        label = "playingTitleColor"
+    )
+
     LaunchedEffect(isRemoving) {
         if (isRemoving) {
             delay(150)
             onRemove()
         }
     }
+
+    // 队列行点击粒子：显式触发（点击 / 长按必有），爆发点优先手指按下位置
+    val (burst, fingerMod) = rememberFingerBurst(
+        color = MaterialTheme.colorScheme.primary,
+        radius = 48.dp,
+    )
 
     // 滑动时删除图标透明度
     val bgAlpha = (offsetX / -200f).coerceIn(0f, 1f)
@@ -1303,28 +1365,26 @@ fun QueueTrackItem(
                     )
                 }
                 .combinedClickable(
-                    onClick = onPlay,
-                    onLongClick = onLongPress
-                ),
+                    onClick = { burst.burst(); onPlay() },
+                    onLongClick = { burst.burst(); onLongPress },
+                )
+                .then(fingerMod),
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                containerColor = cardBg
             )
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 当前播放指示器竖条
+                // 当前播放指示器竖条（颜色随播放状态渐变切换）
                 Box(
                     modifier = Modifier
                         .width(4.dp)
                         .height(40.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(
-                            if (isCurrentTrack) MaterialTheme.colorScheme.primary
-                            else Color.Transparent
-                        )
+                        .background(barColor)
                 )
                 Spacer(Modifier.width(12.dp))
 
@@ -1370,7 +1430,7 @@ fun QueueTrackItem(
                         fontWeight = if (isCurrentTrack) FontWeight.Bold else FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = titleColor
                     )
                     Text(
                         text = "${track.artist} • ${track.album}",
@@ -1418,7 +1478,7 @@ fun TrackDetailDialog(
     coverCache: Map<Long, String>,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
+    ParticleAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(

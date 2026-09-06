@@ -1,7 +1,9 @@
 package com.winter.muplayer.ui.components
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -69,20 +71,36 @@ fun PlayPauseButton(
                 .scale(scale.value)
                 .background(color = containerColor, shape = CircleShape),
         ) {
-            if (isLoading) {
-                CircularProgressIndicator(
+        // 加载 / 播放 / 暂停三态图标之间淡入淡出过渡（切歌、起播、暂停不再瞬时跳变）
+        Crossfade(
+            targetState = when {
+                isLoading -> 0
+                isPlaying -> 1
+                else -> 2
+            },
+            animationSpec = tween(180),
+            label = "playStateIcon",
+        ) { state ->
+            when (state) {
+                0 -> CircularProgressIndicator(
                     modifier = Modifier.size(32.dp),
                     color = iconTint,
                     strokeWidth = 3.dp,
                 )
-            } else {
-                Icon(
-                    painter = if (isPlaying) painterResource(R.drawable.ic_pause) else painterResource(R.drawable.ic_play),
-                    contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
+                1 -> Icon(
+                    painter = painterResource(R.drawable.ic_pause),
+                    contentDescription = stringResource(R.string.pause),
+                    modifier = Modifier.size(40.dp),
+                    tint = iconTint,
+                )
+                else -> Icon(
+                    painter = painterResource(R.drawable.ic_play),
+                    contentDescription = stringResource(R.string.play),
                     modifier = Modifier.size(40.dp),
                     tint = iconTint,
                 )
             }
+        }
         }
     }
 }
@@ -93,20 +111,6 @@ fun PlayModeButton(
     onClick: () -> Unit,
     tint: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    val icon = when (playMode) {
-        PlayMode.SEQUENTIAL -> painterResource(R.drawable.ic_shuffle_disabled)
-        PlayMode.SHUFFLE -> painterResource(R.drawable.ic_shuffle)
-        PlayMode.SINGLE_LOOP -> painterResource(R.drawable.ic_repeat_one)
-        PlayMode.REPEAT_ALL -> painterResource(R.drawable.ic_repeat)
-    }
-
-    val label = when (playMode) {
-        PlayMode.SEQUENTIAL -> stringResource(R.string.mode_sequential)
-        PlayMode.SHUFFLE -> stringResource(R.string.mode_shuffle)
-        PlayMode.SINGLE_LOOP -> stringResource(R.string.mode_single_loop)
-        PlayMode.REPEAT_ALL -> stringResource(R.string.mode_repeat_all)
-    }
-
     val burst = rememberParticleBurstState()
     ParticleBurstBox(state = burst, color = tint) {
         IconButton(
@@ -115,7 +119,29 @@ fun PlayModeButton(
                 onClick()
             },
         ) {
-            Icon(painter = icon, contentDescription = label, modifier = Modifier.size(28.dp), tint = tint)
+            // 模式图标淡入淡出切换（不再瞬时跳变）
+            Crossfade(
+                targetState = playMode,
+                animationSpec = tween(180),
+                label = "playModeIcon",
+            ) { mode ->
+                Icon(
+                    painter = when (mode) {
+                        PlayMode.SEQUENTIAL -> painterResource(R.drawable.ic_shuffle_disabled)
+                        PlayMode.SHUFFLE -> painterResource(R.drawable.ic_shuffle)
+                        PlayMode.SINGLE_LOOP -> painterResource(R.drawable.ic_repeat_one)
+                        PlayMode.REPEAT_ALL -> painterResource(R.drawable.ic_repeat)
+                    },
+                    contentDescription = when (mode) {
+                        PlayMode.SEQUENTIAL -> stringResource(R.string.mode_sequential)
+                        PlayMode.SHUFFLE -> stringResource(R.string.mode_shuffle)
+                        PlayMode.SINGLE_LOOP -> stringResource(R.string.mode_single_loop)
+                        PlayMode.REPEAT_ALL -> stringResource(R.string.mode_repeat_all)
+                    },
+                    modifier = Modifier.size(28.dp),
+                    tint = tint,
+                )
+            }
         }
     }
 }

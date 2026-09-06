@@ -47,8 +47,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
+import com.winter.muplayer.ui.components.ParticleDialog
+import com.winter.muplayer.ui.components.ParticleLayer
+import com.winter.muplayer.ui.components.ParticleModalSheet
 import com.winter.muplayer.config.ComponentLayout
 import com.winter.muplayer.config.CssRuleTable
 import com.winter.muplayer.config.SlotContext
@@ -90,13 +92,16 @@ fun PluginUiOverlay() {
             val r = remember(target.session.descriptor.id, target.layoutPath) {
                 PluginUiHost.loadLayout(target.session, target.layoutPath)
             }
-            PluginFullscreenPage(
-                session = target.session,
-                layout = r.getOrNull()?.layout,
-                css = r.getOrNull()?.css ?: CssRuleTable(),
-                slotContext = slotContext,
-                error = r.exceptionOrNull()?.message,
-            )
+            // 全屏插件页也是独立“界面”：ParticleLayer 提供点击粒子，绘制层位于插件页之上
+            ParticleLayer(modifier = Modifier.fillMaxSize()) {
+                PluginFullscreenPage(
+                    session = target.session,
+                    layout = r.getOrNull()?.layout,
+                    css = r.getOrNull()?.css ?: CssRuleTable(),
+                    slotContext = slotContext,
+                    error = r.exceptionOrNull()?.message,
+                )
+            }
         }
     }
 
@@ -111,7 +116,7 @@ fun PluginUiOverlay() {
                 }
                 if (result == null) return
                 if (result.isFailure) {
-                    Dialog(onDismissRequest = { PluginUiHost.close() }) {
+                    ParticleDialog(onDismissRequest = { PluginUiHost.close() }) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -142,19 +147,19 @@ fun PluginUiOverlay() {
                 } else {
                     val (layout, css) = result.getOrThrow()
                     if (o.kind == PluginUiHost.UiKind.BOTTOM_SHEET) {
-                        ModalBottomSheet(onDismissRequest = { PluginUiHost.close() }) {
-                            SlotRenderer(
-                                slots = layout.slots,
-                                context = slotContext,
-                                css = css,
-                                customComponents = layout.customComponents,
-                                debug = false,
-                                outerArrange = css.rules[".main"]?.get("arrange"),
-                            )
-                            Spacer(Modifier.padding(bottom = 32.dp))
+                        ParticleModalSheet(onDismissRequest = { PluginUiHost.close() }) {
+                                SlotRenderer(
+                                    slots = layout.slots,
+                                    context = slotContext,
+                                    css = css,
+                                    customComponents = layout.customComponents,
+                                    debug = false,
+                                    outerArrange = css.rules[".main"]?.get("arrange"),
+                                )
+                                Spacer(Modifier.padding(bottom = 32.dp))
                         }
                     } else {
-                        Dialog(onDismissRequest = { PluginUiHost.close() }) {
+                        ParticleDialog(onDismissRequest = { PluginUiHost.close() }) {
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -262,7 +267,7 @@ private fun PluginInfoDialog(session: PluginSession) {
         com.winter.muplayer.plugin.model.PluginType.COMPONENT -> "组件插件"
         com.winter.muplayer.plugin.model.PluginType.SERVICE -> "服务插件"
     }
-    Dialog(onDismissRequest = { PluginUiHost.close() }) {
+    ParticleDialog(onDismissRequest = { PluginUiHost.close() }) {
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,

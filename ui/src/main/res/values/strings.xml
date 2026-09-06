@@ -86,15 +86,15 @@
     <string name="dynamic_color_subtitle">使用壁纸颜色生成主题（Android 12+）</string>
     <string name="blur_background">封面模糊背景</string>
     <string name="blur_background_subtitle">全屏播放时封面图模糊作为背景</string>
-    <string name="mini_blur_background">迷你播放栏背景效果</string>
-    <string name="mini_blur_background_subtitle">无效果 / 半透明 / 毛玻璃（仅模糊）/ 液态玻璃（折射 + 高光）</string>
+    <string name="mini_blur_background">播放栏背景效果</string>
+    <string name="mini_blur_background_subtitle">无效果 / 半透明 / 毛玻璃 / 液态玻璃</string>
     <string name="mini_blur_none">无效果</string>
     <string name="mini_blur_semi">半透明</string>
     <string name="mini_blur_blur">毛玻璃</string>
     <string name="mini_blur_liquid">液态玻璃</string>
     <string name="liquid_glass_title">玻璃质感</string>
     <string name="liquid_blur">模糊度</string>
-    <string name="liquid_glass_subtitle">仅液态玻璃模式生效；调节折射带、折射强度与高光（写入样式配置）</string>
+    <string name="liquid_glass_subtitle">仅液态玻璃模式生效；调节折射带、折射强度与高光</string>
     <string name="liquid_edge">边缘隆起宽度</string>
     <string name="liquid_refraction">折射强度</string>
     <string name="liquid_opacity">表面不透明度</string>
@@ -106,7 +106,13 @@
     <string name="adaptive_tint_invert">反色</string>
     <string name="adaptive_tint_mono">黑白</string>
     <string name="particle_effect">按钮粒子特效</string>
-    <string name="particle_effect_subtitle">点击按钮时从中心向外扩散粒子</string>
+    <string name="particle_effect_subtitle">点击粒子特效</string>
+    <string name="particle_style">粒子样式</string>
+    <string name="particle_style_dot">光点</string>
+    <string name="particle_style_tech">方框</string>
+    <string name="particle_style_ripple">涟漪</string>
+    <string name="particle_color">点击特效颜色</string>
+    <string name="particle_color_auto">跟随界面（自动）</string>
 
     <!-- 音乐扫描 -->
     <string name="auto_scan">启动时自动扫描</string>

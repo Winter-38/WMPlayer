@@ -49,6 +49,24 @@ class SettingsManager(context: Context) {
         get() = prefs.getBoolean(KEY_PARTICLE_EFFECT, true)
         set(value) = prefs.edit().putBoolean(KEY_PARTICLE_EFFECT, value).apply()
 
+    /**
+     * 粒子样式序号：与 ui.components.ParticleBurstStyle.ordinal 保持一致
+     * （0=光点爆发 1=方框套方框 2=圆形涟漪）；越界值由读取方收敛为默认。
+     */
+    var particleStyle: Int
+        get() = prefs.getInt(KEY_PARTICLE_STYLE, 0)
+        set(value) = prefs.edit().putInt(KEY_PARTICLE_STYLE, value).apply()
+
+    /** 点击特效颜色模式：0=跟随界面（自适应渲染色 / 主题色） 1=固定颜色（取 [particleColor]） */
+    var particleColorMode: Int
+        get() = prefs.getInt(KEY_PARTICLE_COLOR_MODE, 0)
+        set(value) = prefs.edit().putInt(KEY_PARTICLE_COLOR_MODE, value).apply()
+
+    /** 固定点击特效颜色（ARGB 色值，与 Color.toArgb() 一致），仅 particleColorMode == 1 时生效 */
+    var particleColor: Int
+        get() = prefs.getInt(KEY_PARTICLE_COLOR, 0xFFFFFFFF.toInt())
+        set(value) = prefs.edit().putInt(KEY_PARTICLE_COLOR, value).apply()
+
     // ==================== 封面自适应取色 ====================
 
     /** 封面模糊背景模式下组件取色方式：正色 / 反色 / 黑白 */
@@ -106,6 +124,9 @@ class SettingsManager(context: Context) {
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_BLUR_BG = "blur_background"
         private const val KEY_PARTICLE_EFFECT = "particle_effect"
+        private const val KEY_PARTICLE_STYLE = "particle_style"
+        private const val KEY_PARTICLE_COLOR_MODE = "particle_color_mode"
+        private const val KEY_PARTICLE_COLOR = "particle_color"
         private const val KEY_ADAPTIVE_TINT_STYLE = "adaptive_tint_style"
         private const val KEY_AUTO_SCAN = "auto_scan"
         private const val KEY_APP_LANGUAGE = "app_language"

@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.winter.muplayer.plugin.PluginException
 import com.winter.muplayer.plugin.model.PluginType
 import com.winter.muplayer.ui.PluginHost
+import com.winter.muplayer.ui.components.ParticleAlertDialog
 import com.winter.muplayer.ui.PluginUiHost
 import com.winter.muplayer.ui.R
 import kotlinx.coroutines.Dispatchers
@@ -196,7 +197,7 @@ fun PluginManagerScreen(onBack: () -> Unit) {
     // 卸载确认弹窗
     pendingUninstall?.let { id ->
         val name = manager.pluginDescriptor(id)?.name ?: id
-        AlertDialog(
+        ParticleAlertDialog(
             onDismissRequest = { pendingUninstall = null },
             title = { Text(stringResource(R.string.plugin_uninstall_title)) },
             text = { Text(stringResource(R.string.plugin_uninstall_text, name)) },

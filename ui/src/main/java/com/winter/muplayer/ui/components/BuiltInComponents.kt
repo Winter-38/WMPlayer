@@ -34,6 +34,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.aspectRatio
@@ -64,6 +65,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,6 +80,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -604,19 +607,77 @@ private fun SlotContext.QueueButtonComponent() {
 @Composable
 private fun SlotContext.progressSlider(modifier: Modifier = Modifier) {
     val progressData = LocalProgress.current
+    val duration = progressData.duration
+    val playFraction = if (duration > 0)
+        progressData.progress.toFloat() / duration.toFloat()
+    else 0f
+    val anim = rememberProgressSliderAnim(playFraction, duration) { fraction ->
+        onSeek((fraction * duration).toLong())
+    }
     Slider(
-        value = if (progressData.duration > 0)
-            progressData.progress.toFloat() / progressData.duration.toFloat()
-        else 0f,
-        onValueChange = { fraction ->
-            onSeek((fraction * progressData.duration).toLong())
-        },
+        value = anim.value,
+        onValueChange = anim.onDrag,
+        onValueChangeFinished = anim.onDragEnd,
         modifier = modifier,
         colors = SliderDefaults.colors(
             thumbColor = MaterialTheme.colorScheme.primary,
             activeTrackColor = MaterialTheme.colorScheme.primary,
             inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
         ),
+    )
+}
+
+/** 进度滑块动画的一次性状态快照（值 + 拖动回调） */
+private class ProgressSliderAnim(
+    val value: Float,
+    val onDrag: (Float) -> Unit,
+    val onDragEnd: () -> Unit,
+)
+
+/**
+ * 进度滑块动画控制器：
+ * - 播放推进（ProgressTracker 每 250ms 步进一次）→ 显示值用 250ms 平滑插值，进度条连续移动而非跳格；
+ * - 拖动 / 点击进度条 → 滑块即时跟手；松手时**一次性** seek（不再拖动中每次回调都 seek），
+ *   并停在手指目标位置直到播放器确认（外部进度追上来再平滑续走）—— 避免松手回弹 / 跳变。
+ */
+@Composable
+private fun rememberProgressSliderAnim(
+    playFraction: Float,
+    duration: Long,
+    onSeekFraction: (Float) -> Unit,
+): ProgressSliderAnim {
+    val scope = rememberCoroutineScope()
+    val display = remember { Animatable(playFraction) }
+    var dragging by remember { mutableStateOf(false) }
+    var dragTarget by remember { mutableStateOf(playFraction) }
+
+    // 外部进度推进 / seek 确认 / 切歌 → 平滑过渡到新目标（用户拖动中不打扰手指）
+    LaunchedEffect(playFraction) {
+        if (!dragging) display.animateTo(playFraction, tween(250))
+    }
+    // 无时长（停止 / 切歌瞬间）→ 显示立即归零，避免从旧位置滑回 0 的怪动画
+    LaunchedEffect(duration) {
+        if (duration <= 0L) {
+            dragging = false
+            display.snapTo(0f)
+        }
+    }
+
+    return ProgressSliderAnim(
+        value = display.value,
+        onDrag = { f ->
+            dragging = true
+            dragTarget = f
+            // 拖动 / 点击时滑块即时跟手（Animatable 并发时新动画取消旧动画，安全）
+            scope.launch { display.snapTo(f) }
+        },
+        onDragEnd = {
+            dragging = false
+            val target = dragTarget
+            // 松手后显示停在目标；播放器确认后外部进度更新会触发上方动画续走
+            scope.launch { display.snapTo(target) }
+            onSeekFraction(target)
+        },
     )
 }
 
@@ -848,6 +909,7 @@ private fun SlotContext.Sort() {
                             )
                         },
                         onClick = {
+                            sortBurst.burst()
                             state.sortField = i
                             expanded = false
                         },
@@ -872,6 +934,7 @@ private fun SlotContext.Sort() {
                         )
                     },
                     onClick = {
+                        sortBurst.burst()
                         state.sortAsc = !state.sortAsc
                         expanded = false
                     },
@@ -945,12 +1008,10 @@ private fun SlotContext.Playlist() {
     // ── 长按菜单 ──
     if (selectedTrack != null) {
         val track = selectedTrack!!
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        ParticleModalSheet(
             onDismissRequest = { selectedTrack = null },
-            sheetState = sheetState,
         ) {
-            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                Column(modifier = Modifier.padding(bottom = 32.dp)) {
                 // 标题
                 Text(
                     text = track.title,
@@ -1010,13 +1071,13 @@ private fun SlotContext.Playlist() {
                         modifier = Modifier.weight(1f)
                     )
                 }
-            }
+                }
         }
     }
 
     // ── 删除确认 ──
     if (showDeleteConfirm && selectedTrack != null) {
-        AlertDialog(
+        ParticleAlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text(stringResource(R.string.delete_song)) },
             text = { Text(stringResource(R.string.delete_song_confirm, selectedTrack!!.title)) },
@@ -1067,42 +1128,55 @@ private fun SlotContext.PbCover(size: Dp) {
     AlbumThumb(albumTrack = track, coverCache = coverCache, size = size)
 }
 
-/** 歌曲标题（私有实现）：过长时走马灯滚动显示 */
+/** 歌曲标题（私有实现）：过长时走马灯滚动显示；切歌时淡入淡出过渡（与全屏 fp-title 一致） */
 @Composable
 private fun SlotContext.PbTitle(modifier: Modifier = Modifier) {
-    Text(
-        text = playerState.currentTrack?.title
-            ?: stringResource(com.winter.muplayer.ui.R.string.not_playing),
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Medium,
-        maxLines = 1,
-        overflow = TextOverflow.Clip,
-        modifier = modifier.basicMarquee(
-            iterations = Int.MAX_VALUE,
-            animationMode = MarqueeAnimationMode.Immediately,
-            spacing = MarqueeSpacing(24.dp),
-            repeatDelayMillis = 1000,
-            velocity = 40.dp,
-        ),
-    )
+    val title = playerState.currentTrack?.title
+        ?: stringResource(com.winter.muplayer.ui.R.string.not_playing)
+    Crossfade(
+        targetState = title,
+        animationSpec = tween(220),
+        label = "pbTitle",
+    ) { text ->
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Clip,
+            modifier = modifier.basicMarquee(
+                iterations = Int.MAX_VALUE,
+                animationMode = MarqueeAnimationMode.Immediately,
+                spacing = MarqueeSpacing(24.dp),
+                repeatDelayMillis = 1000,
+                velocity = 40.dp,
+            ),
+        )
+    }
 }
 
-/** 歌手名（私有实现）：无曲目时不显示 */
+/** 歌手名（私有实现）：无曲目时不显示；切歌时淡入淡出过渡 */
 @Composable
 private fun SlotContext.PbSubtitle(
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodyMedium,
 ) {
     val currentTrack = playerState.currentTrack
-    if (currentTrack != null) {
-        Text(
-            text = currentTrack.artist,
-            style = style,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = modifier,
-        )
+    Crossfade(
+        targetState = currentTrack?.artist,
+        animationSpec = tween(220),
+        label = "pbSubtitle",
+    ) { artist ->
+        if (artist != null) {
+            Text(
+                text = artist,
+                style = style,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = modifier,
+            )
+        }
     }
 }
 
@@ -1689,14 +1763,19 @@ private fun SlotContext.FpProgress() {
     val progressData = LocalProgress.current
     // 跟随背面模糊封面的亮度：亮封面 → 深色，暗封面 → 白色（高对比）
     val tint = if (adaptiveTint != Color.Unspecified) adaptiveTint else MaterialTheme.colorScheme.onSurface
+    val duration = progressData.duration
+    val playFraction = if (duration > 0)
+        progressData.progress.toFloat() / duration.toFloat()
+    else 0f
+    // 播放推进平滑 + 拖动/点击跟手、松手一次性 seek（不回弹）
+    val anim = rememberProgressSliderAnim(playFraction, duration) { fraction ->
+        onSeek((fraction * duration).toLong())
+    }
     Column(modifier = Modifier.fillMaxWidth()) {
         Slider(
-            value = if (progressData.duration > 0)
-                progressData.progress.toFloat() / progressData.duration.toFloat()
-            else 0f,
-            onValueChange = { fraction ->
-                onSeek((fraction * progressData.duration).toLong())
-            },
+            value = anim.value,
+            onValueChange = anim.onDrag,
+            onValueChangeFinished = anim.onDragEnd,
             modifier = Modifier.fillMaxWidth(),
             colors = SliderDefaults.colors(
                 thumbColor = tint,
@@ -1709,12 +1788,12 @@ private fun SlotContext.FpProgress() {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = formatDuration(progressData.progress),
+                text = formatDuration((anim.value * duration).toLong()),
                 style = MaterialTheme.typography.bodySmall,
                 color = tint.copy(alpha = 0.75f)
             )
             Text(
-                text = formatDuration(progressData.duration),
+                text = formatDuration(duration),
                 style = MaterialTheme.typography.bodySmall,
                 color = tint.copy(alpha = 0.75f)
             )
