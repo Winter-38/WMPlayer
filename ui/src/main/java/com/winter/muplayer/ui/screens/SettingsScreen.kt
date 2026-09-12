@@ -83,7 +83,9 @@ fun SettingsScreen(
     // 插件管理子页面：设置内仅保留入口，点入独立管理界面
     var showPluginManager by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize()) {
+    // 不透明背景：设置页与主界面做左右滑动交叉切换（两者同时在场），
+    // 透明根容器会让两层界面互相透视，看起来像“两个界面叠加渲染”。
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // 设置页主体：切到插件管理时左滑淡出
         AnimatedVisibility(
             visible = !showPluginManager,

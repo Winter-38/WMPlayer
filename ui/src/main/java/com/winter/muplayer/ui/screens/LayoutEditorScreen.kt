@@ -355,13 +355,14 @@ fun LayoutEditorScreen(
     fun updateProps(selector: String, props: Map<String, String>) {
         val rules = cssRules.rules.toMutableMap()
         if (props.isEmpty()) rules.remove(selector) else rules[selector] = props
-        commitCss(CssRuleTable(rules))
+        // 保留 @keyframes：样式提交只改规则，不能丢掉用户的动画定义
+        commitCss(CssRuleTable(rules, cssRules.keyframes))
     }
 
     fun removeSelector(selector: String) {
         val rules = cssRules.rules.toMutableMap()
         rules.remove(selector)
-        commitCss(CssRuleTable(rules))
+        commitCss(CssRuleTable(rules, cssRules.keyframes))
     }
 
     fun addSelector(rawName: String) {
@@ -372,7 +373,7 @@ fun LayoutEditorScreen(
         if (cssRules.rules.containsKey(name)) return
         val rules = cssRules.rules.toMutableMap()
         rules[name] = emptyMap()
-        commitCss(CssRuleTable(rules))
+        commitCss(CssRuleTable(rules, cssRules.keyframes))
         styleTarget = StyleTarget(name, selectorTitle(name), emptyMap())
     }
 
@@ -1897,13 +1898,29 @@ private fun StyleEditorSheet(
     // 当前组件特有的属性（如迷你栏 render-style、playlist item-*、tab-bar 样式组合）；
     // 未登记组件 → 只有通用属性
     val specificProps = COMPONENT_SPECIFIC_PROPS[target.selector.removePrefix("#")].orEmpty()
-    // 面板内展示的属性 = 通用 + 类型专属（slot 显示主轴对齐；组件显示交叉轴对齐）+ 组件特有
-    val visibleProps = remember(specificProps, isSlot) {
-        if (isSlot) {
-            (COMMON_PROPS + SLOT_ONLY_PROPS + specificProps).distinctBy { it.key }
-        } else {
-            (COMMON_PROPS + COMPONENT_ONLY_PROPS + specificProps).distinctBy { it.key }
-        }
+    // 根容器（.main / .full-player）是最外层容器：渲染层对它额外应用整套组件样式（applyCssProps），
+    // 因此尺寸 / 背景 / 边框等组件属性在根容器上同样生效。
+    val isRootContainer = target.selector == ".main" || target.selector == ".full-player"
+    // 容器组件（fp-backdrop / pb-backdrop / backdrop-blur）的 arrange 决定 children 的排列方向
+    val isContainerComponent =
+        !isSlot && target.selector.removePrefix("#") in LayoutParser.SLOT_COMPONENT_IDS
+    // 面板只展示“在该处真实生效”的属性：
+    // slot 面板不放组件专属属性，组件面板不放 slot 专属属性，避免出现改了没反应的项。
+    val visibleProps = remember(specificProps, isSlot, isRootContainer, isContainerComponent) {
+        when {
+            isSlot && isRootContainer ->
+                SLOT_ONLY_PROPS + SHARED_PROPS + COMPONENT_ONLY_PROPS + specificProps
+            isSlot -> SLOT_ONLY_PROPS + SHARED_PROPS + specificProps
+            isContainerComponent ->
+                COMPONENT_ONLY_PROPS + SHARED_PROPS + specificProps +
+                    PropSpec(
+                        "arrange",
+                        "子区域排列方向",
+                        PropType.SEGMENT,
+                        options = listOf("row", "column", "overlay"),
+                    )
+            else -> COMPONENT_ONLY_PROPS + SHARED_PROPS + specificProps
+        }.distinctBy { it.key }
     }
     // 已由面板管理的属性（含组合预设写到的 style/display 等）不再进“高级属性”区
     val managedKeys = remember(visibleProps) {
@@ -1972,45 +1989,66 @@ private fun StyleEditorSheet(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
             )
-            visibleProps.forEach { spec ->
-                when (spec.type) {
-                    PropType.SEGMENT -> PropSegments(
-                        spec = spec,
-                        current = props[spec.key],
-                        allProps = props,
-                        onChange = { v -> props = props + (spec.key to v); commit() },
-                        onPresetChange = { opt ->
-                            // 组合预设：同时设置/清除多个 CSS 属性（如 tab 栏样式）
-                            val preset = spec.presetValues[opt]
-                            if (preset != null) {
-                                val newProps = props.toMutableMap()
-                                preset.forEach { (k, v) ->
-                                    if (v == null) newProps.remove(k) else newProps[k] = v
+            val groupedProps = remember(visibleProps) {
+                visibleProps.groupBy { PROP_GROUP_OF[it.key] ?: PropGroup.OTHER }
+            }
+            PropGroup.entries.forEach { group ->
+                val specs = groupedProps[group] ?: return@forEach
+                Text(
+                    group.label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+                )
+                specs.forEach { spec ->
+                    if (spec.animation != null) {
+                        // 动画：效果 / 时长 / 缓动 三段纯选择（无自由输入，避免手写简写出错）
+                        PropAnimationEditor(
+                            spec = spec,
+                            loop = spec.animation.loop,
+                            current = props[spec.key],
+                            onCommit = { v -> props = props + (spec.key to v); commit() },
+                            onClear = { props = props - spec.key; commit() },
+                        )
+                    } else when (spec.type) {
+                        PropType.SEGMENT -> PropSegments(
+                            spec = spec,
+                            current = props[spec.key],
+                            allProps = props,
+                            onChange = { v -> props = props + (spec.key to v); commit() },
+                            onPresetChange = { opt ->
+                                // 组合预设：同时设置/清除多个 CSS 属性（如 tab 栏样式）
+                                val preset = spec.presetValues[opt]
+                                if (preset != null) {
+                                    val newProps = props.toMutableMap()
+                                    preset.forEach { (k, v) ->
+                                        if (v == null) newProps.remove(k) else newProps[k] = v
+                                    }
+                                    props = newProps
+                                    commit()
                                 }
-                                props = newProps
-                                commit()
-                            }
-                        },
-                        onClear = { props = props - spec.key; commit() },
-                    )
-                    PropType.NUMBER -> PropNumberInput(
-                        spec = spec,
-                        current = props[spec.key],
-                        onCommit = { v -> props = props + (spec.key to v); commit() },
-                        onClear = { props = props - spec.key; commit() },
-                    )
-                    PropType.TEXT -> PropTextInput(
-                        spec = spec,
-                        current = props[spec.key],
-                        onCommit = { v -> props = props + (spec.key to v); commit() },
-                        onClear = { props = props - spec.key; commit() },
-                    )
-                    PropType.COLOR -> PropColor(
-                        spec = spec,
-                        current = props[spec.key],
-                        onChange = { v -> props = props + (spec.key to v); commit() },
-                        onClear = { props = props - spec.key; commit() },
-                    )
+                            },
+                            onClear = { props = props - spec.key; commit() },
+                        )
+                        PropType.NUMBER -> PropNumberInput(
+                            spec = spec,
+                            current = props[spec.key],
+                            onCommit = { v -> props = props + (spec.key to v); commit() },
+                            onClear = { props = props - spec.key; commit() },
+                        )
+                        PropType.TEXT -> PropTextInput(
+                            spec = spec,
+                            current = props[spec.key],
+                            onCommit = { v -> props = props + (spec.key to v); commit() },
+                            onClear = { props = props - spec.key; commit() },
+                        )
+                        PropType.COLOR -> PropColor(
+                            spec = spec,
+                            current = props[spec.key],
+                            onChange = { v -> props = props + (spec.key to v); commit() },
+                            onClear = { props = props - spec.key; commit() },
+                        )
+                    }
                 }
             }
 
@@ -2100,6 +2138,132 @@ private fun StyleEditorSheet(
 
 private enum class PropType { SEGMENT, NUMBER, TEXT, COLOR }
 
+/**
+ * 属性分组 —— 编辑面板按此分组呈现（声明顺序即呈现顺序）。
+ *
+ * 目的：把原先一长条平铺的属性按语义合并同类项，降低查找成本。
+ * 特别注意动画分成两组：**入场动画**（播放一次，如旋转进场）与
+ * **持续动画**（循环播放，如一直旋转），二者语义完全不同，混在一起容易误用。
+ */
+private enum class PropGroup(val label: String) {
+    LAYOUT("布局"),
+    SIZE("尺寸与间距"),
+    APPEARANCE("外观"),
+    TEXT("文字"),
+    SHAPE("内容与形状"),
+    TRANSFORM("变换"),
+    ENTER_ANIM("入场动画（播放一次）"),
+    LOOP_ANIM("持续动画（循环）"),
+    ITEM("列表条目"),
+    GLASS("玻璃特效"),
+    OTHER("其他"),
+}
+
+/**
+ * 属性 key → 分组。未登记的属性落入 [PropGroup.OTHER]。
+ * 与各属性表分开维护：属性表决定“值怎么编辑”，本表只决定“放在哪一组”。
+ */
+private val PROP_GROUP_OF: Map<String, PropGroup> = mapOf(
+    // 布局
+    "arrange" to PropGroup.LAYOUT,
+    "weight" to PropGroup.LAYOUT,
+    "gap" to PropGroup.LAYOUT,
+    "justify-content" to PropGroup.LAYOUT,
+    "align" to PropGroup.LAYOUT,
+    "align-self" to PropGroup.LAYOUT,
+    "content-align" to PropGroup.LAYOUT,
+    // 尺寸与间距
+    "size" to PropGroup.SIZE,
+    "width" to PropGroup.SIZE,
+    "height" to PropGroup.SIZE,
+    "min-width" to PropGroup.SIZE,
+    "min-height" to PropGroup.SIZE,
+    "max-width" to PropGroup.SIZE,
+    "max-height" to PropGroup.SIZE,
+    "padding" to PropGroup.SIZE,
+    // 外观
+    "color" to PropGroup.APPEARANCE,
+    "background-color" to PropGroup.APPEARANCE,
+    "background" to PropGroup.APPEARANCE,
+    "border-radius" to PropGroup.APPEARANCE,
+    "border" to PropGroup.APPEARANCE,
+    "box-shadow" to PropGroup.APPEARANCE,
+    "opacity" to PropGroup.APPEARANCE,
+    "radius" to PropGroup.APPEARANCE,
+    "elevation" to PropGroup.APPEARANCE,
+    "fill-color" to PropGroup.APPEARANCE,
+    "stroke-color" to PropGroup.APPEARANCE,
+    "stroke-width" to PropGroup.APPEARANCE,
+    "track-color" to PropGroup.APPEARANCE,
+    "tint" to PropGroup.APPEARANCE,
+    "tint-alpha" to PropGroup.APPEARANCE,
+    // 文字
+    "font-family" to PropGroup.TEXT,
+    "font-size" to PropGroup.TEXT,
+    "font-weight" to PropGroup.TEXT,
+    "font-style" to PropGroup.TEXT,
+    "line-height" to PropGroup.TEXT,
+    "letter-spacing" to PropGroup.TEXT,
+    "text-align" to PropGroup.TEXT,
+    "text-transform" to PropGroup.TEXT,
+    "text-decoration" to PropGroup.TEXT,
+    "text-shadow" to PropGroup.TEXT,
+    "max-lines" to PropGroup.TEXT,
+    "text-overflow" to PropGroup.TEXT,
+    // 内容与形状
+    "content" to PropGroup.SHAPE,
+    "src" to PropGroup.SHAPE,
+    "value" to PropGroup.SHAPE,
+    "fit" to PropGroup.SHAPE,
+    "thickness" to PropGroup.SHAPE,
+    "orientation" to PropGroup.SHAPE,
+    "dashed" to PropGroup.SHAPE,
+    "dash-gap" to PropGroup.SHAPE,
+    "fade-edges" to PropGroup.SHAPE,
+    "hollow" to PropGroup.SHAPE,
+    "pill" to PropGroup.SHAPE,
+    "animate" to PropGroup.SHAPE,
+    "padding-x" to PropGroup.SHAPE,
+    "padding-y" to PropGroup.SHAPE,
+    "text-size" to PropGroup.TEXT,
+    "text-color" to PropGroup.TEXT,
+    // 变换
+    "scale" to PropGroup.TRANSFORM,
+    "rotate" to PropGroup.TRANSFORM,
+    "overflow" to PropGroup.TRANSFORM,
+    // 入场动画（播放一次）
+    "enter" to PropGroup.ENTER_ANIM,
+    "enter-delay" to PropGroup.ENTER_ANIM,
+    "stagger" to PropGroup.ENTER_ANIM,
+    "item-enter" to PropGroup.ENTER_ANIM,
+    // 持续动画（循环）
+    "animation" to PropGroup.LOOP_ANIM,
+    // 列表条目
+    "item-layout" to PropGroup.ITEM,
+    "item-columns" to PropGroup.ITEM,
+    "item-inertia" to PropGroup.ITEM,
+    "item-bg" to PropGroup.ITEM,
+    "item-radius" to PropGroup.ITEM,
+    "item-color" to PropGroup.ITEM,
+    "item-font-size" to PropGroup.ITEM,
+    "item-sub-color" to PropGroup.ITEM,
+    "item-sub-size" to PropGroup.ITEM,
+    "item-font-family" to PropGroup.ITEM,
+    // 玻璃特效
+    "render-style" to PropGroup.GLASS,
+    "blur-radius" to PropGroup.GLASS,
+    "liquid-edge" to PropGroup.GLASS,
+    "liquid-refraction" to PropGroup.GLASS,
+    "liquid-opacity" to PropGroup.GLASS,
+    "liquid-specular" to PropGroup.GLASS,
+    "liquid-shininess" to PropGroup.GLASS,
+    "liquid-rim" to PropGroup.GLASS,
+    "liquid-chromatic" to PropGroup.GLASS,
+)
+
+/** 动画属性的结构化编辑规格（效果 / 时长 / 缓动 三段选择，不提供自由输入）。 */
+private data class AnimationEditorSpec(val loop: Boolean)
+
 private data class PropSpec(
     val key: String,
     val label: String,
@@ -2113,7 +2277,179 @@ private data class PropSpec(
      * 用于一个选项同时设置/清除多个 CSS 属性（如 tab 栏 3 种样式组合）。
      */
     val presetValues: Map<String, Map<String, String?>> = emptyMap(),
+    /**
+     * 非空时改用 [PropAnimationEditor] 结构化编辑（三段纯选择），不再走 [PropType]。
+     * 动画简写手写易错且无反馈，故编辑器不提供自由输入；自定义 @keyframes 请直接改 styles.css。
+     */
+    val animation: AnimationEditorSpec? = null,
+    /** 选项中文说明：值 → 显示文本（chip 上显示说明而非 CSS 原始值，便于理解）。 */
+    val optionLabels: Map<String, String> = emptyMap(),
 )
+
+// ════════════════════════════════════════════
+// 动画属性：结构化编辑（效果 / 时长 / 缓动）
+// ════════════════════════════════════════════
+
+/** 入场动画效果：CSS 值 → 中文说明（chip 上显示右侧文字，用户无需记住英文名） */
+private val ENTER_EFFECT_OPTIONS: List<Pair<String, String>> = listOf(
+    "fade-in" to "渐显",
+    "fade-up" to "淡入上移",
+    "fade-down" to "淡入下移",
+    "slide-in-left" to "左侧滑入",
+    "slide-in-right" to "右侧滑入",
+    "slide-in-up" to "底部滑入",
+    "slide-in-down" to "顶部滑入",
+    "zoom-in" to "放大出现",
+    "pop" to "弹出",
+    "rotate-in" to "旋转入场",
+    "rotate-in-cw" to "反向旋入",
+    "spiral-in" to "螺旋放大",
+    "flip-in-x" to "上下翻转",
+    "flip-in-y" to "左右翻转",
+    "drop-in" to "落下",
+)
+
+/** 持续动画效果：CSS 值 → 中文说明 */
+private val LOOP_EFFECT_OPTIONS: List<Pair<String, String>> = listOf(
+    "spin" to "持续旋转",
+    "spin-reverse" to "反向旋转",
+    "pulse" to "呼吸缩放",
+    "bounce" to "上下弹跳",
+    "shake" to "左右掆动",
+)
+
+/** 入场时长：入场动画宜短，超过 600ms 会显得拖沓 */
+private val ENTER_DURATION_OPTIONS: List<Pair<String, String>> = listOf(
+    "160ms" to "极快",
+    "240ms" to "较快",
+    "320ms" to "适中",
+    "480ms" to "较慢",
+    "640ms" to "慢",
+)
+
+/** 循环时长：持续动画宜慢，太快会干扰阅读 */
+private val LOOP_DURATION_OPTIONS: List<Pair<String, String>> = listOf(
+    "1s" to "快",
+    "2s" to "适中",
+    "3s" to "较慢",
+    "4s" to "慢",
+    "6s" to "很慢",
+)
+
+/** 缓动曲线（与 CSS 同名，一个名字对应一条真实曲线） */
+private val EASING_OPTIONS: List<Pair<String, String>> = listOf(
+    "linear" to "匀速",
+    "ease" to "标准",
+    "ease-out" to "先快后慢",
+    "ease-in" to "先慢后快",
+    "ease-in-out" to "两端缓",
+)
+
+/**
+ * 把动画简写拆成 (效果, 时长, 缓动)。
+ *
+ * 与 config 的解析规则对齐：第一个时间 token 是时长，缓动关键字按名识别，其余为效果名。
+ * 次数（`infinite` / 数字）与延迟在动画编辑器里不暴露，遇到时忽略（不影响其原有语义）。
+ */
+private fun splitAnimationValue(raw: String?, loop: Boolean): Triple<String, String, String> {
+    val defaultEffect = if (loop) "spin" else "fade-up"
+    val defaultDuration = if (loop) "3s" else "320ms"
+    if (raw.isNullOrBlank()) return Triple(defaultEffect, defaultDuration, "ease-out")
+
+    var effect: String? = null
+    var duration: String? = null
+    var easing: String? = null
+    for (token in raw.trim().split(Regex("\\s+"))) {
+        val lower = token.lowercase()
+        when {
+            lower == "infinite" || lower.toIntOrNull() != null -> Unit
+            EASING_OPTIONS.any { it.first == lower } -> easing = lower
+            lower.endsWith("ms") || lower.endsWith("s") -> if (duration == null) duration = lower
+            else -> effect = token
+        }
+    }
+    return Triple(effect ?: defaultEffect, duration ?: defaultDuration, easing ?: "ease-out")
+}
+
+/**
+ * 动画属性编辑器 —— 效果 / 时长 / 缓动 三段纯选择，**不提供自由输入**。
+ *
+ * 为什么去掉输入框：动画简写（如 `fade-up 320ms ease-out`）手写容易拼错，
+ * 错了也没有任何反馈（静默不生效）。预设已覆盖常见需求；确实需要自定义
+ * `@keyframes` 时直接编辑 `styles.css` 即可，编辑器不为此保留低效的输入框。
+ */
+@Composable
+private fun PropAnimationEditor(
+    spec: PropSpec,
+    loop: Boolean,
+    current: String?,
+    onCommit: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    val (effect, duration, easing) = remember(current, loop) {
+        splitAnimationValue(current, loop)
+    }
+    val effects = if (loop) LOOP_EFFECT_OPTIONS else ENTER_EFFECT_OPTIONS
+    val durations = if (loop) LOOP_DURATION_OPTIONS else ENTER_DURATION_OPTIONS
+
+    fun commit(e: String = effect, d: String = duration, s: String = easing) {
+        onCommit("$e $d $s")
+    }
+
+    Column(modifier = Modifier.padding(top = 10.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(spec.label, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.weight(1f))
+            if (current != null) {
+                Text(
+                    current,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                TextButton(onClick = onClear) {
+                    Text(
+                        stringResource(R.string.layout_editor_clear),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+        }
+        AnimationChoiceRow("效果", effects, effect) { commit(e = it) }
+        AnimationChoiceRow("时长", durations, duration) { commit(d = it) }
+        AnimationChoiceRow("缓动", EASING_OPTIONS, easing) { commit(s = it) }
+    }
+}
+
+/** 一行动画选项：左侧小标题 + 可换行的 chips */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AnimationChoiceRow(
+    label: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(34.dp).padding(top = 12.dp),
+        )
+        FlowRow(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            options.forEach { (value, text) ->
+                FilterChip(
+                    selected = selected == value,
+                    onClick = { onSelect(value) },
+                    label = { Text(text, fontSize = 12.sp) },
+                )
+            }
+        }
+    }
+}
 
 /** 枚举型属性：直接单选（FilterChip）。支持组合预设（一个选项映射多个 CSS 属性）。 */
 @OptIn(ExperimentalLayoutApi::class)
@@ -2159,7 +2495,8 @@ private fun PropSegments(
                     onClick = {
                         if (spec.presetValues.isNotEmpty()) onPresetChange(opt) else onChange(opt)
                     },
-                    label = { Text(opt, fontSize = 12.sp) },
+                    // 有中文说明时显示说明（如 row → 横向排列），否则退回原始值
+                    label = { Text(spec.optionLabels[opt] ?: opt, fontSize = 12.sp) },
                 )
             }
         }
@@ -2471,6 +2808,14 @@ private val COMPONENT_LABELS: Map<String, String> = mapOf(
     "fp-title" to "歌曲标题",
     "fp-subtitle" to "歌手/专辑",
     "fp-progress" to "播放器进度条",
+    // 纯美化组件（只影响外观，不参与业务逻辑）
+    "divider" to "分割线",
+    "image" to "图片",
+    "card" to "卡片",
+    "badge" to "徒章",
+    "dot" to "圆点",
+    "progress" to "进度条（静态）",
+    "blur-layer" to "模糊层",
     "__slot__" to "子区域容器",
 )
 
@@ -2485,45 +2830,103 @@ private fun propsSummary(props: Map<String, String>): String {
     return props.entries.joinToString("  ") { (k, v) -> "$k: $v" }
 }
 
-/** 常用属性定义表（所有组件编辑抽屉共用的通用属性）。
- *  SEGMENT：有明确取值集合 → 直接选择（FilterChip 单选）；
- *  NUMBER：开放数值 → 输入框（可带单位）；
- *  TEXT：自由文本 → 输入框（+ 可选快捷选项）；
- *  COLOR：颜色 → 色板快捷 + 输入框（任意 CSS 颜色）。
+/**
+ * 通用属性 —— **在 slot 与组件上都真实生效**的属性（渲染层两边都读取）。
  *
- *  归属划分：
- *  - justify-content（分布方式）→ [SLOT_ONLY_PROPS]（仅 slot 决定内部组件排列）；
- *  - align-self（对齐方式）→ [COMPONENT_ONLY_PROPS]（仅组件决定在父 slot 交叉轴位置）；
- *  - align（叠放定位）→ 通用（overlay 叠放时 slot 与组件都按其 9 宫格定位）；
- *  - 组件特有属性（render-style / item-* 等）见 [COMPONENT_SPECIFIC_PROPS]，仅对应抽屉显示。 */
-private val COMMON_PROPS: List<PropSpec> = listOf(
-    PropSpec("arrange", "排列方向", PropType.SEGMENT, options = listOf("row", "column", "overlay")),
+ * 只在一侧生效的属性不放在这里，避免面板出现“改了没反应”的项：
+ * - 仅 slot 生效 → [SLOT_ONLY_PROPS]
+ * - 仅组件生效 → [COMPONENT_ONLY_PROPS]
+ *
+ * PropType 语义：
+ * - SEGMENT：有明确取值集合 → 单选（FilterChip）
+ * - NUMBER：开放数值 → 输入框（可带单位）
+ * - TEXT：自由文本 → 输入框（+ 可选快捷选项）
+ * - COLOR：颜色 → 色板快捷 + 输入框（任意 CSS 颜色）
+ */
+private val SHARED_PROPS: List<PropSpec> = listOf(
     PropSpec("weight", "空间占比", PropType.NUMBER, numeric = true),
+    PropSpec("align", "叠放定位", PropType.SEGMENT, options = listOf("top-start", "top-center", "top-end", "center-start", "center", "center-end", "bottom-start", "bottom-center", "bottom-end")),
+    PropSpec("background-color", "背景颜色", PropType.COLOR),
+    PropSpec("padding", "内边距", PropType.NUMBER),
+    // 动画：渲染层对 slot 与组件统一挂载（slot 控制内部组件位置，组件控制自身内容位置），两边都生效
+    PropSpec("enter", "入场动画", PropType.SEGMENT, animation = AnimationEditorSpec(loop = false)),
+    PropSpec("enter-delay", "入场延迟（毫秒，可省略单位）", PropType.NUMBER),
+    PropSpec("animation", "循环动画", PropType.SEGMENT, animation = AnimationEditorSpec(loop = true)),
+)
+
+/**
+ * slot 专有属性 —— 渲染层只从 **slot 的 CSS** 读取这些属性决定内部组件的排列与间距
+ * （`slotCss["arrange"]` / `["justify-content"]` / `["gap"]`），写在组件上对布局无效果。
+ * 因此只出现在区域选择器（`.app-top`）的编辑面板里。
+ *
+ * 唯一的例外是 `stagger`：组件自身写它会覆盖父 slot 下传的错开间隔（边缘用法），
+ * 但常规做法是把间隔写在 slot 上统一控制内部组件。
+ */
+private val SLOT_ONLY_PROPS: List<PropSpec> = listOf(
+    PropSpec(
+        "arrange",
+        "排列方向",
+        PropType.SEGMENT,
+        options = listOf("row", "column", "overlay"),
+        optionLabels = mapOf("row" to "横向排列", "column" to "纵向堆叠", "overlay" to "叠放"),
+    ),
+    PropSpec(
+        "justify-content",
+        "分布方式",
+        PropType.SEGMENT,
+        options = listOf("start", "center", "end", "space-between", "space-evenly", "space-around"),
+        optionLabels = mapOf(
+            "start" to "靠前",
+            "center" to "居中",
+            "end" to "靠后",
+            "space-between" to "两端对齐",
+            "space-evenly" to "等距分布",
+            "space-around" to "环绕分布",
+        ),
+    ),
+    PropSpec("gap", "子组件间距", PropType.NUMBER),
+    PropSpec("stagger", "子组件依次入场间隔（如 60ms）", PropType.TEXT),
+)
+
+/**
+ * 组件专有属性 —— 只对组件选择器（`#app-name`）生效的通用属性，
+ * 因此只出现在组件的编辑面板里。
+ *
+ * 例外：根容器（`.main` / `.full-player`）是最外层容器，渲染层对它额外应用整套
+ * 组件样式（`applyCssProps`），因此这些属性在根容器面板里同样会显示。
+ */
+private val COMPONENT_ONLY_PROPS: List<PropSpec> = listOf(
+    PropSpec(
+        "align-self",
+        "交叉轴对齐",
+        PropType.SEGMENT,
+        options = listOf("start", "center", "end", "stretch"),
+        optionLabels = mapOf("start" to "起点", "center" to "居中", "end" to "终点", "stretch" to "拉伸填满"),
+    ),
+    PropSpec(
+        "content-align",
+        "内容对齐",
+        PropType.SEGMENT,
+        options = listOf("start", "center", "end"),
+        optionLabels = mapOf("start" to "起点", "center" to "居中", "end" to "终点"),
+    ),
     PropSpec("size", "尺寸", PropType.NUMBER),
     PropSpec("width", "宽度", PropType.NUMBER),
     PropSpec("height", "高度", PropType.NUMBER),
+    PropSpec("min-width", "最小宽度", PropType.NUMBER),
+    PropSpec("min-height", "最小高度", PropType.NUMBER),
+    PropSpec("max-width", "最大宽度", PropType.NUMBER),
+    PropSpec("max-height", "最大高度", PropType.NUMBER),
     PropSpec("color", "文字/图标颜色", PropType.COLOR),
-    PropSpec("background-color", "背景颜色", PropType.COLOR),
-    PropSpec("border-radius", "圆角", PropType.NUMBER),
-    PropSpec("padding", "内边距", PropType.NUMBER),
-    PropSpec("gap", "间距", PropType.NUMBER),
     PropSpec("font-size", "字号", PropType.NUMBER),
-    PropSpec("align", "叠放定位", PropType.SEGMENT, options = listOf("top-start", "top-center", "top-end", "center-start", "center", "center-end", "bottom-start", "bottom-center", "bottom-end")),
+    PropSpec("background", "背景（可写 linear-gradient(...)）", PropType.TEXT),
+    PropSpec("border-radius", "圆角", PropType.NUMBER),
+    PropSpec("border", "边框（如 1px solid #fff）", PropType.TEXT),
+    PropSpec("box-shadow", "阴影（如 0 4px 12px rgba(0,0,0,.3)）", PropType.TEXT),
     PropSpec("opacity", "不透明度", PropType.NUMBER, numeric = true),
-)
-
-/** slot 独有属性：仅区域选择器（.x）的编辑抽屉显示。
- *  justify-content（分布方式）：决定 slot 内组件沿排列方向（row=水平 / column=垂直）的分布。
- *  组件自身不读取此属性，因此组件抽屉不显示。 */
-private val SLOT_ONLY_PROPS: List<PropSpec> = listOf(
-    PropSpec("justify-content", "分布方式", PropType.SEGMENT, options = listOf("start", "center", "end", "space-between", "space-evenly", "space-around")),
-)
-
-/** 组件独有属性：仅组件选择器（#x）的编辑抽屉显示。
- *  align-self（对齐方式）：决定组件在父 slot 交叉轴（与排列方向垂直的轴）上的对齐（未设 = stretch 填满）。
- *  slot 自身不读取此属性，因此区域抽屉不显示。 */
-private val COMPONENT_ONLY_PROPS: List<PropSpec> = listOf(
-    PropSpec("align-self", "对齐方式", PropType.SEGMENT, options = listOf("start", "center", "end", "stretch")),
+    PropSpec("scale", "缩放", PropType.NUMBER, numeric = true),
+    PropSpec("rotate", "静态旋转（如 45deg）", PropType.TEXT),
+    PropSpec("overflow", "溢出裁剪", PropType.SEGMENT, options = listOf("hidden")),
 )
 
 /** 迷你播放栏玻璃属性（playbar / pb-backdrop 共用）。 */
@@ -2548,18 +2951,83 @@ private val GLASS_PROPS: List<PropSpec> = listOf(
  * - 文本（text）：content / font-weight / font-style / text-align
  */
 private val COMPONENT_SPECIFIC_PROPS: Map<String, List<PropSpec>> = mapOf(
+    // ── 纯美化组件（各自特色属性）──
+    "divider" to listOf(
+        PropSpec("thickness", "线宽", PropType.NUMBER),
+        PropSpec("orientation", "方向", PropType.SEGMENT, options = listOf("horizontal", "vertical"), optionLabels = mapOf("horizontal" to "水平", "vertical" to "垂直")),
+        PropSpec("dashed", "虚线", PropType.SEGMENT, options = listOf("true", "false"), optionLabels = mapOf("true" to "虚线", "false" to "实线")),
+        PropSpec("dash-gap", "虚线段长", PropType.NUMBER),
+        PropSpec("fade-edges", "两端渐隐", PropType.SEGMENT, options = listOf("true", "false"), optionLabels = mapOf("true" to "渐隐", "false" to "不渐隐")),
+    ),
+    "image" to listOf(
+        PropSpec("src", "图片源（资源名 / 路径 / URL）", PropType.TEXT),
+        PropSpec(
+            "fit",
+            "填充方式",
+            PropType.SEGMENT,
+            options = listOf("contain", "cover", "fill", "fitWidth", "fitHeight"),
+            optionLabels = mapOf(
+                "contain" to "完整显示",
+                "cover" to "裁剪填满",
+                "fill" to "拉伸填满",
+                "fitWidth" to "宽度撑满",
+                "fitHeight" to "高度撑满",
+            ),
+        ),
+        PropSpec("tint", "着色", PropType.COLOR),
+        PropSpec("alpha", "不透明度", PropType.NUMBER, numeric = true),
+    ),
+    "card" to listOf(
+        PropSpec("radius", "圆角", PropType.NUMBER),
+        PropSpec("fill-color", "填充色", PropType.COLOR),
+        PropSpec("stroke-color", "描边色", PropType.COLOR),
+        PropSpec("stroke-width", "描边宽度", PropType.NUMBER),
+        PropSpec("elevation", "阴影高度", PropType.NUMBER),
+    ),
+    "badge" to listOf(
+        PropSpec("content", "文本", PropType.TEXT),
+        PropSpec("fill-color", "背景色", PropType.COLOR),
+        PropSpec("text-color", "文字颜色", PropType.COLOR),
+        PropSpec("text-size", "字号", PropType.NUMBER),
+        PropSpec("pill", "形状", PropType.SEGMENT, options = listOf("true", "false"), optionLabels = mapOf("true" to "胶囊", "false" to "圆角矩形")),
+        PropSpec("stroke-color", "描边色", PropType.COLOR),
+        PropSpec("stroke-width", "描边宽度", PropType.NUMBER),
+        PropSpec("padding-x", "水平内边距", PropType.NUMBER),
+        PropSpec("padding-y", "垂直内边距", PropType.NUMBER),
+    ),
+    "dot" to listOf(
+        PropSpec("size", "直径", PropType.NUMBER),
+        PropSpec("color", "颜色", PropType.COLOR),
+        PropSpec("hollow", "填充", PropType.SEGMENT, options = listOf("true", "false"), optionLabels = mapOf("true" to "空心", "false" to "实心")),
+        PropSpec("stroke-width", "描边宽度", PropType.NUMBER),
+    ),
+    "progress" to listOf(
+        PropSpec("value", "数值（0..1 或 0..100）", PropType.NUMBER, numeric = true),
+        PropSpec("track-color", "轨道色", PropType.COLOR),
+        PropSpec("fill-color", "填充色", PropType.COLOR),
+        PropSpec("height", "条粗", PropType.NUMBER),
+        PropSpec("radius", "圆角", PropType.NUMBER),
+        PropSpec("animate", "数值变化", PropType.SEGMENT, options = listOf("true", "false"), optionLabels = mapOf("true" to "带动画", "false" to "直接跳变")),
+    ),
+    "blur-layer" to listOf(
+        PropSpec("blur-radius", "模糊半径", PropType.NUMBER),
+        PropSpec("tint", "叠加色", PropType.COLOR),
+        PropSpec("tint-alpha", "叠加不透明度", PropType.NUMBER, numeric = true),
+    ),
     "playbar" to GLASS_PROPS,
     "pb-backdrop" to GLASS_PROPS,
     "playlist" to listOf(
-        PropSpec("item-layout", "条目布局", PropType.SEGMENT, options = listOf("list", "grid")),
+        PropSpec("item-layout", "条目布局", PropType.SEGMENT, options = listOf("list", "grid"), optionLabels = mapOf("list" to "列表", "grid" to "网格")),
         PropSpec("item-columns", "网格列数", PropType.NUMBER, numeric = true),
+        PropSpec("item-inertia", "滚动惯性强度", PropType.NUMBER, numeric = true),
+        PropSpec("item-enter", "条目入场动画", PropType.SEGMENT, animation = AnimationEditorSpec(loop = false)),
         PropSpec("item-bg", "条目背景色", PropType.COLOR),
         PropSpec("item-radius", "条目圆角", PropType.NUMBER),
         PropSpec("item-color", "歌名颜色", PropType.COLOR),
         PropSpec("item-font-size", "歌名字号", PropType.NUMBER),
         PropSpec("item-sub-color", "歌手/专辑颜色", PropType.COLOR),
         PropSpec("item-sub-size", "副文字字号", PropType.NUMBER),
-        PropSpec("item-font-family", "字体", PropType.TEXT, options = listOf("serif", "monospace", "cursive")),
+        PropSpec("item-font-family", "字体", PropType.SEGMENT, options = listOf("serif", "monospace", "cursive"), optionLabels = mapOf("serif" to "衬线", "monospace" to "等宽", "cursive" to "手写体")),
     ),
     "tab-bar" to listOf(
         // 3 种样式组合：标签栏（默认）/ 胶囊行（style: pills）/ 竖向堆叠（display: column）
@@ -2577,8 +3045,16 @@ private val COMPONENT_SPECIFIC_PROPS: Map<String, List<PropSpec>> = mapOf(
     ),
     "text" to listOf(
         PropSpec("content", "文本内容", PropType.TEXT),
+        PropSpec("font-family", "字体", PropType.SEGMENT, options = listOf("sans-serif", "serif", "monospace", "cursive"), optionLabels = mapOf("sans-serif" to "无衬线", "serif" to "衬线", "monospace" to "等宽", "cursive" to "手写体")),
         PropSpec("font-weight", "字重", PropType.NUMBER, numeric = true),
         PropSpec("font-style", "字体风格", PropType.SEGMENT, options = listOf("normal", "italic")),
-        PropSpec("text-align", "文本对齐", PropType.SEGMENT, options = listOf("start", "center", "end")),
+        PropSpec("line-height", "行高", PropType.NUMBER),
+        PropSpec("letter-spacing", "字间距", PropType.NUMBER),
+        PropSpec("text-align", "文本对齐", PropType.SEGMENT, options = listOf("start", "center", "end"), optionLabels = mapOf("start" to "左对齐", "center" to "居中", "end" to "右对齐")),
+        PropSpec("text-transform", "大小写", PropType.SEGMENT, options = listOf("none", "uppercase", "lowercase", "capitalize"), optionLabels = mapOf("none" to "不转换", "uppercase" to "全大写", "lowercase" to "全小写", "capitalize" to "首字母大写")),
+        PropSpec("text-decoration", "装饰线（可组合）", PropType.TEXT, options = listOf("none", "underline", "line-through")),
+        PropSpec("text-shadow", "文字阴影", PropType.TEXT),
+        PropSpec("max-lines", "最大行数", PropType.NUMBER),
+        PropSpec("text-overflow", "溢出处理", PropType.SEGMENT, options = listOf("ellipsis", "clip", "visible"), optionLabels = mapOf("ellipsis" to "省略号", "clip" to "截断", "visible" to "溢出可见")),
     ),
 )

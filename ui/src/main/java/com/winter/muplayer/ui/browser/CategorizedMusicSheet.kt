@@ -1,5 +1,8 @@
 package com.winter.muplayer.ui.browser
 
+import com.winter.muplayer.config.LocalCssRules
+import com.winter.muplayer.config.cssAnimated
+import com.winter.muplayer.config.parseAnimationBinding
 import com.winter.muplayer.ui.R
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
@@ -9,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -55,6 +59,8 @@ fun AllSongsTab(
     onTrackLongClick: (Track) -> Unit = {},
     itemStyle: ItemStyle = ItemStyle()
 ) {
+    // 分类 / 排序：作为条目入场动画的 replayKey（切换时重播入场动画）
+    val browserState = LocalBrowserState.current
     if (isLoading) {
         // 数据加载中：显示占位，不渲染列表。
         // 确保 LazyColumn 首次出现在屏幕上即为全新滚动状态（顶部），
@@ -94,19 +100,37 @@ fun AllSongsTab(
                     }
                 }
             } else {
+                // 滚动惯性：条目在滑动中按与视口中心的距离错开，停止时弹回（CSS item-inertia > 0 时启用）
+                val inertiaState = rememberListInertiaState(state, itemStyle.inertia > 0f)
+                // 条目入场动画（CSS `item-enter`）：切换分类 / 排序时重播，逐条错开
+                val keyframes = LocalCssRules.current.keyframes
+                val enterBinding = remember(itemStyle.enter, keyframes) {
+                    itemStyle.enter?.let { raw ->
+                        parseAnimationBinding(mapOf("enter" to raw), keyframes)
+                    }
+                }
+                val enterReplayKey =
+                    "${browserState.selectedCategory}-${browserState.sortField}-${browserState.sortAsc}"
                 LazyColumn(
                     state = state,
                     modifier = Modifier
                         .fillMaxWidth()
                         .fillMaxHeight(),
                 ) {
-                    items(items = tracks, key = { "${it.id}" }) { track ->
+                    itemsIndexed(items = tracks, key = { _, track -> "${track.id}" }) { index, track ->
                         TrackRow(
                             track = track,
                             coverCache = coverCache,
                             onClick = { onTrackClick(track) },
                             onLongClick = { onTrackLongClick(track) },
-                            itemStyle = itemStyle
+                            itemStyle = itemStyle,
+                            modifier = inertiaOffsetModifier(index, inertiaState, itemStyle.inertia)
+                                .cssAnimated(
+                                    binding = enterBinding,
+                                    // 前 10 条依次错开，更靠后的同批入场（避免长列表尾部延迟数秒）
+                                    staggerIndex = index.coerceAtMost(9),
+                                    replayKey = enterReplayKey,
+                                ),
                         )
                     }
                 }
@@ -410,7 +434,28 @@ data class ItemStyle(
     val fontFamily: FontFamily? = null,
     val layout: ItemLayout = ItemLayout.LIST,
     val columns: Int = 2,
+    /** 滚动惯性强度（CSS `item-inertia`）：0 = 关闭；>0 时滚动中条目按与视口中心的距离错开 */
+    val inertia: Float = 0f,
+    /** 条目入场动画的 CSS 原始值（`item-enter`，如 `rotate-in 420ms ease-out`）；
+     *  保留原始串是因为解析需要 CssRuleTable.keyframes，只能到渲染处才能解析 */
+    val enter: String? = null,
 )
+
+
+/**
+ * 惯性位移修饰符 —— 在 `graphicsLayer` 的 lambda 内读取速度与视口位置，处于绘制阶段：
+ * 滚动与回弹只触发重绘，不触发重组，也不改变条目的布局占位。
+ */
+private fun inertiaOffsetModifier(
+    index: Int,
+    state: ListInertiaState?,
+    strength: Float,
+): Modifier {
+    if (state == null || strength <= 0f) return Modifier
+    return Modifier.graphicsLayer {
+        translationY = state.translationFor(index, strength) * density
+    }
+}
 
 // ==================== 单曲行 ====================
 
@@ -421,7 +466,9 @@ fun TrackRow(
     coverCache: Map<Long, String>,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
-    itemStyle: ItemStyle = ItemStyle()
+    itemStyle: ItemStyle = ItemStyle(),
+    /** 绘制层修饰符（滚动惯性位移等）：追加在最外层，不改变测量结果 */
+    modifier: Modifier = Modifier,
 ) {
     // 歌曲行点击粒子：显式触发（点击 / 长按必有），爆发点优先手指按下位置
     val (burst, fingerMod) = rememberFingerBurst(
@@ -429,7 +476,7 @@ fun TrackRow(
         radius = 48.dp,
     )
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 3.dp)
             .combinedClickable(
@@ -649,9 +696,11 @@ fun AlbumThumb(
 
 @Composable
 fun EmptyState(message: String) {
+    // fillMaxSize 撑满父容器（列表区域），配合 Center 让图标 + 文案在整个区域内水平垂直居中；
+    // 原先的 fillMaxWidth 只有水平居中，空库时内容会贴在区域顶部。
     Box(
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxSize()
             .padding(48.dp),
         contentAlignment = Alignment.Center
     ) {

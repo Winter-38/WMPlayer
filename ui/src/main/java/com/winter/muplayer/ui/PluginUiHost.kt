@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.winter.muplayer.config.ComponentRegistry
+import com.winter.muplayer.config.CssParseResult
 import com.winter.muplayer.config.CssParser
 import com.winter.muplayer.config.CssRuleTable
 import com.winter.muplayer.config.LayoutParser
@@ -241,16 +242,19 @@ object PluginUiHost : PluginUiBridge {
             val layout = StyleConfigLoader.parseConfigObjectStatic(root)
             // JSON 内联 style（兼容） + 同目录 style.css（插件统一样式，覆盖同名规则）
             val jsonCss = root.optString("style").takeIf { it.isNotBlank() }
-                ?.let { CssParser.parse(it) } ?: emptyMap()
+                ?.let { CssParser.parseAll(it) } ?: CssParseResult(emptyMap(), emptyMap())
             val cssFile = File(file.parentFile, "style.css")
-            val fileCss = if (cssFile.isFile) CssParser.parse(cssFile.readText()) else emptyMap()
-            val merged = jsonCss + fileCss
+            val fileCss = if (cssFile.isFile) CssParser.parseAll(cssFile.readText())
+            else CssParseResult(emptyMap(), emptyMap())
+            val merged = jsonCss.rules + fileCss.rules
+            val mergedKeyframes = jsonCss.keyframes + fileCss.keyframes
             android.util.Log.i(
                 "LuaPlugin-UI",
                 "loadLayout ${session.descriptor.id}/$layoutPath: 规则 ${merged.size} 个" +
-                    "（json ${jsonCss.size} + style.css ${fileCss.size}）"
+                    "（json ${jsonCss.rules.size} + style.css ${fileCss.rules.size}），" +
+                    "关键帧 ${mergedKeyframes.size} 个"
             )
-            PluginLayout(layout, CssRuleTable(merged))
+            PluginLayout(layout, CssRuleTable(merged, mergedKeyframes))
         }.onFailure { e ->
             android.util.Log.e(
                 "LuaPlugin-UI",

@@ -2,6 +2,7 @@ package com.winter.muplayer.config
 
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
 /**
  * 配置序列化器 —— 把内存中的布局 / 样式模型写回磁盘格式（main.json / styles.css）。
@@ -139,19 +140,37 @@ object ConfigWriter {
     /** CSS 属性输出顺序（未知属性按字母序排在最后）。 */
     private val PROP_ORDER: List<String> = listOf(
         "arrange", "weight", "size", "width", "height",
-        "color", "background-color", "border-radius",
+        "min-width", "min-height", "max-width", "max-height",
+        "color", "background-color", "background", "border-radius",
+        "border", "box-shadow",
         "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
         "gap", "font-size",
         "align", "align-self", "justify-content", "content-align",
         "opacity", "scale", "rotate", "overflow",
+        // 动画：持续 / 入场 / 延迟 / slot 子组件错开
+        "animation", "enter", "enter-delay", "stagger",
+        // 文本组件特色属性
+        "content", "font-family", "font-weight", "font-style", "text-align",
+        "text-transform", "text-decoration", "line-height", "letter-spacing",
+        "max-lines", "text-overflow",
+        // playlist 条目样式
+        "item-layout", "item-columns", "item-inertia", "item-radius",
+        "item-color", "item-font-size", "item-sub-color", "item-sub-size", "item-font-family",
+        // 迷你播放栏玻璃
         "render-style", "blur-radius",
         "liquid-edge", "liquid-refraction", "liquid-opacity",
-        "liquid-specular", "liquid-shininess", "liquid-rim",
+        "liquid-specular", "liquid-shininess", "liquid-rim", "liquid-chromatic",
     )
 
-    /** 序列化样式表为 styles.css 文本（选择器顺序稳定：区域在前、组件在后、组内字母序）。 */
+    /**
+     * 序列化样式表为 styles.css 文本。
+     *
+     * 先输出 `@keyframes` 定义（用户自定义动画在编辑器保存后必须原样保留），
+     * 再输出规则块（选择器顺序稳定：区域在前、组件在后、组内字母序）。
+     */
     fun cssTableToText(table: CssRuleTable): String {
         val sb = StringBuilder()
+        appendKeyframes(sb, table.keyframes)
         val rules = table.rules.toList().sortedWith(compareBy(
             { selectorRank(it.first) },
             { it.first },
@@ -170,6 +189,51 @@ object ConfigWriter {
         }
         return if (sb.isEmpty()) "" else sb.toString().trimEnd() + "\n"
     }
+
+    /** 输出 @keyframes 块（按名排序，帧内属性顺序固定，便于 diff） */
+    private fun appendKeyframes(sb: StringBuilder, keyframes: Map<String, CssKeyframes>) {
+        if (keyframes.isEmpty()) return
+        keyframes.values.sortedBy { it.name }.forEach { kf ->
+            if (kf.isEmpty) return@forEach
+            sb.append("@keyframes ").append(kf.name).append(" {\n")
+            kf.frames.forEach { frame ->
+                sb.append("  ").append(keyframeOffsetLabel(frame.offset)).append(" {\n")
+                frame.opacity?.let {
+                    sb.append("    opacity: ").append(formatNumber(it)).append(";\n")
+                }
+                frame.translateX?.let {
+                    sb.append("    translate-x: ").append(formatNumber(it)).append("px;\n")
+                }
+                frame.translateY?.let {
+                    sb.append("    translate-y: ").append(formatNumber(it)).append("px;\n")
+                }
+                val sx = frame.scaleX
+                val sy = frame.scaleY
+                when {
+                    sx != null && sy != null && sx == sy ->
+                        sb.append("    scale: ").append(formatNumber(sx)).append(";\n")
+                    sx != null -> sb.append("    scale-x: ").append(formatNumber(sx)).append(";\n")
+                    sy != null -> sb.append("    scale-y: ").append(formatNumber(sy)).append(";\n")
+                }
+                frame.rotate?.let {
+                    sb.append("    rotate: ").append(formatNumber(it)).append("deg;\n")
+                }
+                sb.append("  }\n")
+            }
+            sb.append("}\n\n")
+        }
+    }
+
+    /** 帧偏移 → 可读标签：0 = from，1 = to，其余为百分比 */
+    private fun keyframeOffsetLabel(offset: Float): String = when {
+        offset <= 0f -> "from"
+        offset >= 1f -> "to"
+        else -> "${(offset * 100f).roundToInt()}%"
+    }
+
+    /** Float → 紧凑文本：整数不带小数点（`16.0` → `16`） */
+    private fun formatNumber(value: Float): String =
+        if (value == value.toInt().toFloat()) value.toInt().toString() else value.toString()
 
     /** 选择器排序：.main / .full-player 最前，其次 .区域，最后 #组件。 */
     private fun selectorRank(selector: String): Int = when {

@@ -21,6 +21,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    androidResources {
+        // 只保留应用真正提供的语言资源：依赖库（androidx / media3 / coil）默认携带
+        // 数十种语言的 strings，裁掉后安装包与安装后磁盘占用同时下降。
+        localeFilters += listOf("zh", "en")
+    }
+
     signingConfigs {
         create("release") {
             storeFile = rootProject.file("wmplayer-key.jks")
@@ -45,6 +51,31 @@ android {
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
+            )
+            // 仅 release 裁剪 CPU 架构：真机国内环境以 arm 为主，x86/x86_64 是模拟器专用。
+            // debug 不限制，模拟器调试不受影响。
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
+        }
+    }
+
+    packaging {
+        resources {
+            // 只排除不影响运行的许可/元数据类文件；
+            // META-INF/services/**（ServiceLoader）与 META-INF/com.android.tools/**（baseline profile）必须保留。
+            excludes += setOf(
+                "META-INF/AL2.0",
+                "META-INF/LGPL2.1",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/LICENSE.md",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/NOTICE.md",
+                "META-INF/*.version",
+                "DebugProbesKt.bin",
             )
         }
     }

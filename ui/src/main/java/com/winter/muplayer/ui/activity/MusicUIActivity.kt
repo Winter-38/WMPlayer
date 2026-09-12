@@ -597,25 +597,30 @@ fun MusicPlayerApp(
                         css = cssRules,
                         customComponents = configState.customComponents,
                         debug = isDebug,
-                        context = SlotContext(
-                            slotName = "",
-                            onOpenSearch = { showSearchScreen = true },
-                            onOpenSettings = { showSettings = true },
-                            localMusicList = browserState.tracks,
-                            isLoadingLocal = browserState.isLoading,
-                            coverCache = coverCache,
-                            musicPlayerCore = musicPlayerCore,
-                            onPlayTrackSmart = { track, contextTracks ->
-                                musicPlayerCore.playTrackSmart(track, contextTracks)
-                            },
-                            playerState = playerState,
-                            onPlay = musicPlayerCore::play,
-                            onPause = musicPlayerCore::pause,
-                            onNext = musicPlayerCore::playNext,
-                            onPrevious = musicPlayerCore::playPrevious,
-                            onOpenFullPlayer = { showFullPlayer = true },
-                            onOpenQueue = { showQueue = true },
-                        ),
+                        context = remember(
+                            browserState.tracks, browserState.isLoading, playerState,
+                            coverCache, musicPlayerCore,
+                        ) {
+                            SlotContext(
+                                slotName = "",
+                                onOpenSearch = { showSearchScreen = true },
+                                onOpenSettings = { showSettings = true },
+                                localMusicList = browserState.tracks,
+                                isLoadingLocal = browserState.isLoading,
+                                coverCache = coverCache,
+                                musicPlayerCore = musicPlayerCore,
+                                onPlayTrackSmart = { track, contextTracks ->
+                                    musicPlayerCore.playTrackSmart(track, contextTracks)
+                                },
+                                playerState = playerState,
+                                onPlay = musicPlayerCore::play,
+                                onPause = musicPlayerCore::pause,
+                                onNext = musicPlayerCore::playNext,
+                                onPrevious = musicPlayerCore::playPrevious,
+                                onOpenFullPlayer = { showFullPlayer = true },
+                                onOpenQueue = { showQueue = true },
+                            )
+                        },
                     )
                 }
             }
@@ -891,7 +896,8 @@ fun FullPlayerPanel(
             // 全屏模糊背景：直接使用原始无损封面
             val uri = getAlbumArtUri(currentTrack, coverCache, preferOriginal = true)
             if (uri != null) {
-                val loader = coil.ImageLoader(currentContext)
+                // 用应用级单例 ImageLoader（避免每首歌都新建一份内存缓存与线程池）
+                val loader = currentContext.imageLoader
                 val request = ImageRequest.Builder(currentContext)
                     .data(uri)
                     .size(100, 100)
@@ -919,28 +925,32 @@ fun FullPlayerPanel(
     BackHandler(onBack = performDismiss)
 
     // ====== 组件化内容：SlotRenderer 渲染 main slots（含 backdrop 背景层） ======
-    val fpContext = SlotContext(
-        slotName = "main",
-        onOpenSearch = {},
-        onOpenSettings = {},
-        localMusicList = emptyList(),
-        isLoadingLocal = false,
-        coverCache = coverCache,
-        musicPlayerCore = musicPlayerCore,
-        onPlayTrackSmart = { _, _ -> },
-        playerState = playerState,
-        onPlay = onPlay,
-        onPause = onPause,
-        onNext = onNext,
-        onPrevious = onPrevious,
-        onOpenFullPlayer = {},
-        onOpenQueue = onShowQueue,
-        onSeek = onSeek,
-        onPlayModeChange = onPlayModeChange,
-        playMode = playMode,
-        adaptiveTint = adaptiveTint,
-        blurBackground = blurBackground,
-    )
+    val fpContext = remember(
+        playerState, playMode, adaptiveTint, blurBackground, coverCache, musicPlayerCore,
+    ) {
+        SlotContext(
+            slotName = "main",
+            onOpenSearch = {},
+            onOpenSettings = {},
+            localMusicList = emptyList(),
+            isLoadingLocal = false,
+            coverCache = coverCache,
+            musicPlayerCore = musicPlayerCore,
+            onPlayTrackSmart = { _, _ -> },
+            playerState = playerState,
+            onPlay = onPlay,
+            onPause = onPause,
+            onNext = onNext,
+            onPrevious = onPrevious,
+            onOpenFullPlayer = {},
+            onOpenQueue = onShowQueue,
+            onSeek = onSeek,
+            onPlayModeChange = onPlayModeChange,
+            playMode = playMode,
+            adaptiveTint = adaptiveTint,
+            blurBackground = blurBackground,
+        )
+    }
 
     // 全屏播放器整体放入独立粒子层：按钮等自触发粒子在面板内可见，不依赖主窗口粒子层；
     // autoTap=true —— 面板空白点击由本层（layerHost）兜底：其渲染色命中判定按粒子宿主层过滤，

@@ -127,11 +127,14 @@ object ConfigPreload {
         val cssFiles = configDir.listFiles { f -> f.extension == "css" }
             ?.sortedBy { it.name } ?: return CssRuleTable()
         val merged = mutableMapOf<String, Map<String, String>>()
+        val mergedKeyframes = mutableMapOf<String, CssKeyframes>()
         for (file in cssFiles) {
             try {
-                merged.putAll(CssParser.parse(file.readText()))
+                val parsed = CssParser.parseAll(file.readText())
+                merged.putAll(parsed.rules)
+                mergedKeyframes.putAll(parsed.keyframes)
             } catch (_: Exception) { }
         }
-        return CssRuleTable(rules = merged)
+        return CssRuleTable(rules = merged, keyframes = mergedKeyframes)
     }
 }

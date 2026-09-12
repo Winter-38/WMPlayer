@@ -2,6 +2,7 @@ package com.winter.muplayer.config
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Modifier
@@ -67,6 +68,15 @@ val LocalComponentExtra = compositionLocalOf<Map<String, Any?>> { emptyMap() }
 
 /** CompositionLocal 承载当前播放进度 —— 独立于 playerState，仅进度条订阅，避免高频进度更新拖垮全 UI 重组 */
 val LocalProgress = compositionLocalOf { ProgressTracker.ProgressData() }
+
+/**
+ * 播放进度**数据源**（StateFlow）—— 需要进度的组件自行 `collectAsState()`。
+ *
+ * 订阅点必须落在叶子组件上：若在渲染树根（[SlotRenderer]）collect，
+ * 每 250ms 的进度 tick 都会让整棵树重组一次。
+ * 无数据源时（如布局编辑器预览、插件页面未接入播放器）组件回退到 [LocalProgress] 的默认值。
+ */
+val LocalProgressFlow = staticCompositionLocalOf<kotlinx.coroutines.flow.StateFlow<ProgressTracker.ProgressData>?> { null }
 
 /**
  * 组件注册表 —— 全局单例。

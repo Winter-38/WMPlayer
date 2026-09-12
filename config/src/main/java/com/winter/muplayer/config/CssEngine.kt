@@ -1,21 +1,16 @@
 package com.winter.muplayer.config
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,15 +18,24 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
  * 全局 CSS 规则表 —— 由 StyleConfigLoader 加载，CompositionLocal 注入。
+ *
+ * [keyframes] 存放 `@keyframes` 定义，供 `animation` / `enter` 属性按名引用；
+ * 与 [rules] 分开存放，避免选择器查找时误匹配到动画名。
  */
 data class CssRuleTable(
     val rules: Map<String, Map<String, String>> = emptyMap(),
+    val keyframes: Map<String, CssKeyframes> = emptyMap(),
 )
 
 val LocalCssRules = staticCompositionLocalOf { CssRuleTable() }
@@ -45,59 +49,107 @@ val LocalComponentCss = staticCompositionLocalOf<Map<String, String>> { emptyMap
 
 /**
  * 将 CSS 属性字典应用到 Modifier。
- * 支持：background-color / size / width / height / border-radius /
- *       padding / padding-top/right/bottom/left / opacity / scale / rotate
+ *
+ * 应用顺序（自外向内）：尺寸 → 约束 → 阴影 → 背景 → 边框 → 裁剪 → 变换 → 内边距。
+ *
+ * 支持：
+ * - 尺寸 `size` / `width` / `height` / `min-width` / `min-height` / `max-width` / `max-height`
+ * - 背景 `background-color`（纯色）/ `background`（纯色或 `linear-gradient(...)`）
+ * - 边框 `border`（`1px solid #fff`，宽度与颜色顺序自由）/ `border-radius`
+ * - 阴影 `box-shadow`（`0 4px 12px rgba(0,0,0,.3)`）
+ * - 内边距 `padding` / `padding-top|right|bottom|left`
+ * - 透明度 `opacity`，变换 `scale`（1 或 2 值）/ `rotate`
+ * - 裁剪 `overflow: hidden`
+ *
+ * 其中 `scale` / `rotate` / `opacity` 只作用于绘制层（graphicsLayer），不改变布局占位。
+ * 无法识别的属性与无法解析的值被静默忽略（保持原有宽容行为）。
  */
 fun Modifier.applyCssProps(props: Map<String, String>): Modifier {
     var m = this
 
-    // 1. background-color
-    props["background-color"]?.let { hex ->
-        parseCssColor(hex)?.let { color -> m = m.background(color) }
-    }
-
-    // 2. size（等宽高）
+    // 1. 尺寸
     props["size"]?.let { parseDp(it)?.let { s -> m = m.size(s) } }
-
-    // 3. width / height
     val w = parseDp(props["width"])
     val h = parseDp(props["height"])
-    if (w != null && h != null) m = m.size(w, h)
-    else if (w != null) m = m.width(w)
-    else if (h != null) m = m.height(h)
-
-    // 4. border-radius
-    props["border-radius"]?.let { radiusStr ->
-        parseDp(radiusStr)?.let { r -> m = m.clip(RoundedCornerShape(r)) }
+    when {
+        w != null && h != null -> m = m.size(w, h)
+        w != null -> m = m.width(w)
+        h != null -> m = m.height(h)
     }
 
-    // 5. padding（含简写和单侧）
-    m = m.applyPaddingProps(props)
+    // 2. 尺寸约束
+    val minW = parseDp(props["min-width"])
+    val minH = parseDp(props["min-height"])
+    val maxW = parseDp(props["max-width"])
+    val maxH = parseDp(props["max-height"])
+    if (minW != null || maxW != null) {
+        m = m.widthIn(min = minW ?: Dp.Unspecified, max = maxW ?: Dp.Unspecified)
+    }
+    if (minH != null || maxH != null) {
+        m = m.heightIn(min = minH ?: Dp.Unspecified, max = maxH ?: Dp.Unspecified)
+    }
 
-    // 6. opacity
+    // 3. 圆角形状（背景 / 边框 / 裁剪共用）
+    val radius = props["border-radius"]?.let { parseDp(it) }
+    val shape: Shape = if (radius != null && radius.value > 0f) RoundedCornerShape(radius) else RectangleShape
+
+    // 4. 阴影（在裁剪之前，否则会被圆角裁掉）
+    parseCssShadow(props["box-shadow"])?.let { shadow -> m = m.cssDropShadow(shadow, shape) }
+
+    // 5. 背景：background 优先（支持渐变），background-color 作为纯色回退
+    val brush = parseCssBackgroundBrush(props["background"])
+        ?: props["background-color"]?.let { parseCssColor(it) }?.let { SolidColor(it) }
+    if (brush != null) m = m.background(brush, shape)
+
+    // 6. 边框
+    parseCssBorder(props["border"])?.let { b -> m = m.border(b.width, b.color, shape) }
+
+    // 7. 裁剪
+    if (radius != null && radius.value > 0f) m = m.clip(shape)
+    props["overflow"]?.let { if (it == "hidden") m = m.clipToBounds() }
+
+    // 8. 透明度 / 变换（仅绘制层）
     props["opacity"]?.let { opacityStr ->
         val v = opacityStr.toFloatOrNull()
         if (v != null && v in 0f..1f) m = m.alpha(v)
     }
-
-    // 7. scale
     props["scale"]?.let { scaleStr ->
-        val v = scaleStr.toFloatOrNull()
-        if (v != null && v > 0f) m = m.scale(v)
+        val values = scaleStr.split(" ").mapNotNull { it.trim().toFloatOrNull() }
+        when {
+            values.size == 1 && values[0] > 0f -> m = m.scale(values[0])
+            values.size >= 2 -> m = m.graphicsLayer {
+                scaleX = values[0]
+                scaleY = values[1]
+            }
+        }
     }
-
-    // 8. rotate (deg)
     props["rotate"]?.let { rotStr ->
-        val v = parseAngle(rotStr)
-        if (v != null) m = m.graphicsLayer { rotationZ = v }
+        parseCssAngle(rotStr)?.let { v -> m = m.graphicsLayer { rotationZ = v } }
     }
 
-    // 9. overflow — 内容溢出裁剪
-    props["overflow"]?.let {
-        if (it == "hidden") m = m.clipToBounds()
-    }
+    // 9. 内边距（收在最内层）
+    m = m.applyPaddingProps(props)
 
     return m
+}
+
+/**
+ * `box-shadow` → Modifier.shadow 的**近似**映射。
+ *
+ * Compose 的 shadow 只接受 elevation，无法精确表达 CSS 的 blur / spread / 偏移方向；
+ * 这里用 blur 与向下偏移推导 elevation，颜色沿用 CSS 颜色（API 28+ 生效）。
+ * 如需像素级精确阴影，应在组件内自绘。
+ */
+internal fun Modifier.cssDropShadow(shadow: CssShadow, shape: Shape): Modifier {
+    val elevationPx = maxOf(shadow.blur / 2f, shadow.dy.coerceAtLeast(0f))
+    if (elevationPx <= 0f) return this
+    return this.shadow(
+        elevation = elevationPx.coerceIn(0f, 48f).dp,
+        shape = shape,
+        clip = false,
+        ambientColor = shadow.color,
+        spotColor = shadow.color,
+    )
 }
 
 /**
@@ -106,6 +158,7 @@ fun Modifier.applyCssProps(props: Map<String, String>): Modifier {
  * 支持格式：
  *   padding: 8px                    → 四边统一
  *   padding: 8px 16px               → 上下 8px，左右 16px
+ *   padding: 8px 16px 12px          → 上 8px，左右 16px，下 12px
  *   padding: 8px 12px 16px 20px     → 上 8px，右 12px，下 16px，左 20px
  *   padding-top: 8px                → 单独覆盖上边
  *   padding-right: 12px
@@ -118,7 +171,7 @@ fun Modifier.applyCssProps(props: Map<String, String>): Modifier {
 fun Modifier.applyPaddingProps(props: Map<String, String>): Modifier {
     var padT = 0.dp; var padR = 0.dp; var padB = 0.dp; var padL = 0.dp
 
-    // 简写 padding（1 / 2 / 4 值）
+    // 简写 padding（1 / 2 / 3 / 4 值）
     props["padding"]?.let { padStr ->
         val parts = padStr.split(" ").map { it.trim() }.filter { it.isNotEmpty() }
         when (parts.size) {
@@ -126,6 +179,11 @@ fun Modifier.applyPaddingProps(props: Map<String, String>): Modifier {
             2 -> {
                 parseDp(parts[0])?.let { padT = it; padB = it }
                 parseDp(parts[1])?.let { padL = it; padR = it }
+            }
+            3 -> {
+                parseDp(parts[0])?.let { padT = it }
+                parseDp(parts[1])?.let { padL = it; padR = it }
+                parseDp(parts[2])?.let { padB = it }
             }
             4 -> {
                 parseDp(parts[0])?.let { padT = it }
@@ -147,125 +205,6 @@ fun Modifier.applyPaddingProps(props: Map<String, String>): Modifier {
     else this
 }
 
-// ── CSS 动画 ──
-
-/**
- * CSS animation 属性解析结果。
- * 格式：<name> <duration> [easing] [count]
- * 如：spin 3s linear infinite | pulse 2s ease-in-out 3
- */
-data class CssAnimation(
-    val name: String,
-    val durationMs: Int = 1000,
-    val easing: CssAnimationEasing = CssAnimationEasing.EASE_IN_OUT,
-    val repeat: Boolean = true,
-)
-
-enum class CssAnimationEasing { LINEAR, EASE_IN, EASE_OUT, EASE_IN_OUT }
-
-/** 解析 CSS animation 属性值，返回 null 表示无法解析 */
-fun parseCssAnimation(value: String): CssAnimation? {
-    val parts = value.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }
-    if (parts.isEmpty()) return null
-
-    val name = parts[0]
-    val dur = parts.getOrNull(1)?.let { parseDurationMs(it) } ?: 1000
-    val easing = parts.getOrNull(2)?.let { parseEasing(it) } ?: CssAnimationEasing.EASE_IN_OUT
-    val repeat = parts.getOrNull(3) == "infinite" || parts.getOrNull(3) == null
-
-    // spin 默认无限旋转
-    val finalRepeat = if (name == "spin" && parts.lastOrNull()?.toIntOrNull() == null) true else repeat
-
-    return CssAnimation(name, dur, easing, finalRepeat)
-}
-
-/**
- * 为组件应用 CSS animation 效果。
- * 返回一个 @Composable 闭包，接受 content 并包裹动画。
- * 如果不需要动画则返回 null。
- */
-fun parseAnimationWrapper(
-    props: Map<String, String>,
-): (@Composable (Modifier, @Composable () -> Unit) -> Unit)? {
-    val animStr = props["animation"] ?: return null
-    val anim = parseCssAnimation(animStr) ?: return null
-
-    return { modifier, content ->
-        CssAnimationBox(anim, modifier, content)
-    }
-}
-
-@Composable
-private fun CssAnimationBox(
-    anim: CssAnimation,
-    modifier: Modifier,
-    content: @Composable () -> Unit,
-) {
-    val transition = rememberInfiniteTransition(label = "css_${anim.name}")
-
-    when (anim.name) {
-        "spin" -> {
-            val rotation by transition.animateFloat(
-                initialValue = 0f, targetValue = 360f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(anim.durationMs, easing = anim.easing.toComposeEasing()),
-                    repeatMode = RepeatMode.Restart,
-                ), label = "spin"
-            )
-            androidx.compose.foundation.layout.Box(
-                modifier = modifier.graphicsLayer { rotationZ = rotation },
-                content = { content() }
-            )
-        }
-        "pulse" -> {
-            val s by transition.animateFloat(
-                initialValue = 1f, targetValue = 1.15f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(anim.durationMs / 2, easing = anim.easing.toComposeEasing()),
-                    repeatMode = RepeatMode.Reverse,
-                ), label = "pulse"
-            )
-            androidx.compose.foundation.layout.Box(
-                modifier = modifier.scale(s),
-                content = { content() }
-            )
-        }
-        "bounce" -> {
-            val bounceY by transition.animateFloat(
-                initialValue = 0f, targetValue = -12f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(anim.durationMs / 2, easing = anim.easing.toComposeEasing()),
-                    repeatMode = RepeatMode.Reverse,
-                ), label = "bounce"
-            )
-            androidx.compose.foundation.layout.Box(
-                modifier = modifier.graphicsLayer { translationY = bounceY },
-                content = { content() }
-            )
-        }
-        "fade-in" -> {
-            val animatedAlpha = androidx.compose.animation.core.Animatable(0f)
-            androidx.compose.runtime.LaunchedEffect(Unit) {
-                animatedAlpha.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(anim.durationMs, easing = anim.easing.toComposeEasing())
-                )
-            }
-            androidx.compose.foundation.layout.Box(
-                modifier = modifier.alpha(animatedAlpha.value),
-                content = { content() }
-            )
-        }
-        else -> content()
-    }
-}
-
-private fun CssAnimationEasing.toComposeEasing(): androidx.compose.animation.core.Easing = when (this) {
-    CssAnimationEasing.LINEAR -> LinearEasing
-    CssAnimationEasing.EASE_IN -> androidx.compose.animation.core.FastOutSlowInEasing
-    CssAnimationEasing.EASE_OUT -> androidx.compose.animation.core.FastOutSlowInEasing
-    CssAnimationEasing.EASE_IN_OUT -> androidx.compose.animation.core.FastOutSlowInEasing
-}
 
 // ── 值解析工具 ──
 
@@ -335,6 +274,14 @@ fun parseCssColor(value: String): Color? {
         return Color(r / 255f, g / 255f, b / 255f, a.coerceIn(0f, 1f))
     }
 
+    if (h.length == 3) {
+        // #RGB 简写：每位重复一次（此前实现只接受 6/8 位，与注释声称的支持不符）
+        val expanded = buildString {
+            h.forEach { c -> append(c).append(c) }
+        }
+        val colorLong = expanded.toLongOrNull(16) ?: return null
+        return Color(0xFF000000 or colorLong)
+    }
     if (h.length != 6 && h.length != 8) return null
     val colorLong = h.toLongOrNull(16) ?: return null
     return if (h.length == 8) Color(colorLong)
@@ -368,23 +315,6 @@ fun parseCssPxFloat(value: String?): Float? {
 fun parseCssNumber(value: String?): Float? {
     if (value == null) return null
     return value.trim().toFloatOrNull()
-}
-
-private fun parseDurationMs(value: String): Int {
-    val trimmed = value.trim()
-    return when {
-        trimmed.endsWith("ms") -> trimmed.removeSuffix("ms").trim().toFloatOrNull()?.toInt() ?: 1000
-        trimmed.endsWith("s") -> (trimmed.removeSuffix("s").trim().toFloatOrNull()?.times(1000f)?.toInt()) ?: 1000
-        else -> trimmed.toIntOrNull() ?: 1000
-    }
-}
-
-private fun parseEasing(value: String): CssAnimationEasing? = when (value) {
-    "linear" -> CssAnimationEasing.LINEAR
-    "ease-in" -> CssAnimationEasing.EASE_IN
-    "ease-out" -> CssAnimationEasing.EASE_OUT
-    "ease-in-out" -> CssAnimationEasing.EASE_IN_OUT
-    else -> null
 }
 
 /** 解析角度值，支持 deg 单位 */

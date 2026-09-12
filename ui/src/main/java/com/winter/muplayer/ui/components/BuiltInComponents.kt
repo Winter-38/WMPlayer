@@ -12,13 +12,23 @@ import com.winter.muplayer.config.LocalComponentCss
 import com.winter.muplayer.config.LocalComponentExtra
 import com.winter.muplayer.config.LocalGlassBackdrop
 import com.winter.muplayer.config.LocalProgress
+import com.winter.muplayer.config.LocalProgressFlow
 import com.winter.muplayer.config.LiquidGlassBackdrop
 import com.winter.muplayer.config.SlotContext
 import com.winter.muplayer.config.isSlotHorizontal
 import com.winter.muplayer.config.isSlotVertical
+import com.winter.muplayer.config.applyTo
 import com.winter.muplayer.config.parseCssColor
 import com.winter.muplayer.config.parseCssDp
+import com.winter.muplayer.config.parseCssFontFamily
+import com.winter.muplayer.config.parseCssLetterSpacing
+import com.winter.muplayer.config.parseCssLineHeight
+import com.winter.muplayer.config.parseCssMaxLines
 import com.winter.muplayer.config.parseCssNumber
+import com.winter.muplayer.config.parseCssShadow
+import com.winter.muplayer.config.parseCssTextDecoration
+import com.winter.muplayer.config.parseCssTextOverflow
+import com.winter.muplayer.config.parseCssTextTransform
 import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
@@ -53,6 +63,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -61,6 +72,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -169,6 +181,10 @@ fun registerBuiltInComponents() {
         "fp-subtitle" to { FpTrackSubtitle() },
         "fp-progress" to { FpProgress() },
     )
+
+    // 纯美化组件（divider / image / card / badge / dot / progress / blur-layer）：
+    // 只依赖 CSS 与 JSON 参数，可放入任意 slot 组合界面，与业务逻辑无关。
+    registerBeautifyComponents()
 }
 
 // ══════════════════════════════════════════════
@@ -355,6 +371,20 @@ private fun SlotContext.IconComponent() {
  *
  * 内容优先级：bind（运行时状态） > CSS content > JSON content。
  */
+/**
+ * 读取播放进度 —— 优先从 [LocalProgressFlow] 订阅。
+ *
+ * 订阅点必须在**使用进度的叶子组件**上：进度流每 250ms 更新一次，
+ * 若在渲染树根订阅会让整棵树跟着重组。无数据源（布局编辑器预览、
+ * 插件页面等未接入播放器的场景）时回退到 [LocalProgress] 的默认值。
+ */
+@Composable
+private fun rememberProgressData(): com.winter.muplayer.core.ProgressTracker.ProgressData {
+    val flow = LocalProgressFlow.current ?: return LocalProgress.current
+    val value by flow.collectAsState()
+    return value
+}
+
 @Composable
 private fun SlotContext.TextComponent() {
     val extra = LocalComponentExtra.current
@@ -362,7 +392,7 @@ private fun SlotContext.TextComponent() {
     // bind 优先级高于 content：bind 引用播放器运行时状态（track.title / position 等）
     val bind = extra["bind"] as? String
     val content = if (bind != null) {
-        DataBinding.resolve(bind, this, LocalProgress.current) ?: "(bind:$bind)"
+        DataBinding.resolve(bind, this, rememberProgressData()) ?: "(bind:$bind)"
     } else {
         // CSS content（去引号）优先，回退 JSON content
         css["content"]?.let { unquoteCssString(it) } ?: extra["content"] as? String
@@ -374,20 +404,46 @@ private fun SlotContext.TextComponent() {
     val fontStyle = css["font-style"]?.let { parseCssFontStyle(it) }
     val textAlign = css["text-align"]?.let { parseCssTextAlign(it) }
 
+    // ── 文本组件特色属性（字体族 / 行高 / 字间距 / 大小写 / 装饰线 / 行数 / 溢出 / 文字阴影）──
+    val fontFamily = parseCssFontFamily(css["font-family"])
+    val lineHeight = parseCssLineHeight(css["line-height"], fontSize?.value?.sp)
+    val letterSpacing = parseCssLetterSpacing(css["letter-spacing"])
+    val decoration = parseCssTextDecoration(css["text-decoration"])
+    val transform = parseCssTextTransform(css["text-transform"])
+    // max-lines: none → Int.MAX_VALUE（不限行）；未设时保持原有的 3 行默认
+    val maxLines = parseCssMaxLines(css["max-lines"]) ?: 3
+    val overflow = parseCssTextOverflow(css["text-overflow"]) ?: TextOverflow.Ellipsis
+    val textShadow = parseCssShadow(css["text-shadow"])?.let { s ->
+        // 全限定：本文件已导入 com.kyant.backdrop.shadow.Shadow（液态玻璃用）
+        androidx.compose.ui.graphics.Shadow(
+            color = s.color,
+            offset = Offset(s.dx, s.dy),
+            blurRadius = s.blur,
+        )
+    }
+
     val baseStyle = MaterialTheme.typography.bodyMedium
     val style = baseStyle.copy(
         fontSize = fontSize?.let { it.value.sp } ?: baseStyle.fontSize,
         fontWeight = fontWeight ?: baseStyle.fontWeight,
         fontStyle = fontStyle ?: baseStyle.fontStyle,
         textAlign = textAlign ?: baseStyle.textAlign,
+        fontFamily = fontFamily ?: baseStyle.fontFamily,
+        lineHeight = lineHeight ?: baseStyle.lineHeight,
+        letterSpacing = letterSpacing ?: baseStyle.letterSpacing,
+        textDecoration = decoration ?: baseStyle.textDecoration,
+        shadow = textShadow ?: baseStyle.shadow,
     )
 
+    // 大小写变换：Compose 无 TextTransform API（实测已移除），由字符串层施加
+    val displayText = content?.let { raw -> transform?.applyTo(raw) ?: raw } ?: "(text)"
+
     Text(
-        text = content ?: "(text)",
+        text = displayText,
         style = style,
         color = cssColor ?: MaterialTheme.colorScheme.onSurface,
-        overflow = TextOverflow.Ellipsis,
-        maxLines = 3,
+        overflow = overflow,
+        maxLines = maxLines,
     )
 }
 
@@ -606,7 +662,7 @@ private fun SlotContext.QueueButtonComponent() {
 /** 进度滑块底层实现（复合组件 progress-bar 内部复用，避免 Slider 样式重复） */
 @Composable
 private fun SlotContext.progressSlider(modifier: Modifier = Modifier) {
-    val progressData = LocalProgress.current
+    val progressData = rememberProgressData()
     val duration = progressData.duration
     val playFraction = if (duration > 0)
         progressData.progress.toFloat() / duration.toFloat()
@@ -972,6 +1028,10 @@ private fun parseItemStyle(css: Map<String, String>): ItemStyle = ItemStyle(
         else -> ItemLayout.LIST
     },
     columns = (css["item-columns"]?.trim()?.toIntOrNull() ?: 2).coerceIn(1, 6),
+    // 滚动惯性：>0 时列表滑动中条目按与视口中心的距离错开，停止后弹回（0 = 关闭）
+    inertia = css["item-inertia"]?.let { parseCssNumber(it) }?.coerceIn(0f, 4f) ?: 0f,
+    // 条目入场动画（如 rotate-in 420ms ease-out）；解析需要 keyframes，故保留原始串到渲染处
+    enter = css["item-enter"]?.trim()?.takeIf { it.isNotEmpty() },
 )
 
 /** 解析字体族：serif / monospace / cursive，sans-serif 或无效值返回 null（主题默认） */
@@ -1572,7 +1632,8 @@ private fun SlotContext.FpBackdrop() {
             )
             if (uri != null) {
                 try {
-                    val loader = coil.ImageLoader(context)
+                    // 用应用级单例 ImageLoader：每次 new 会额外带一份内存缓存与 OkHttp 线程池
+                    val loader = context.imageLoader
                     val result = loader.execute(
                         ImageRequest.Builder(context)
                             .data(uri)
@@ -1760,7 +1821,7 @@ private fun SlotContext.FpTrackSubtitle() {
 
 @Composable
 private fun SlotContext.FpProgress() {
-    val progressData = LocalProgress.current
+    val progressData = rememberProgressData()
     // 跟随背面模糊封面的亮度：亮封面 → 深色，暗封面 → 白色（高对比）
     val tint = if (adaptiveTint != Color.Unspecified) adaptiveTint else MaterialTheme.colorScheme.onSurface
     val duration = progressData.duration
@@ -1877,7 +1938,7 @@ private fun SlotContext.TrackInfo() {
 
 @Composable
 private fun SlotContext.ProgressBar() {
-    val progressData = LocalProgress.current
+    val progressData = rememberProgressData()
     if (isSlotHorizontal) {
         // 横向父 slot → 行内紧凑进度条
         Row(

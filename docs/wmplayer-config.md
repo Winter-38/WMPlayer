@@ -448,45 +448,128 @@ padding: 8px 12px 16px 20px  /* 上 右 下 左 */
 
 ### 3.5 动画属性
 
-#### animation
+动画只作用于**绘制层**（平移 / 缩放 / 旋转 / 透明度），不参与测量与布局：
+动画期间组件的布局占位完全不变，相邻元素不会被推动，也不会触发重新布局。
+状态读取发生在绘制阶段，因此每帧只重绘、不重组。
+
+#### 触发时机
+
+| 属性 | 触发时机 | 语义 |
+|------|----------|------|
+| `enter` | 该元素被组合时播一次（呼出界面、切换布局、列表项首次进入） | 入场过渡 |
+| `enter-delay` | 在 `enter` 之前额外等待 | 延迟入场 |
+| `animation` | 组合后持续播放 | 常驻动效（可循环或指定次数） |
+| `stagger` | **仅 slot**：内部子组件依次入场的间隔 | 内部组件错开 |
+
+`enter` 与 `animation` 同时存在时：先播 `enter`，结束后接 `animation`。
+
+#### 作用对象
+
+- 写在 **slot** 选择器（如 `.app-top`）上 → 控制**内部组件**的位置：
+  `enter` 让 slot 内组件一起入场，`stagger: 60ms` 让它们依次错开入场。
+- 写在 **组件** 选择器（如 `#app-name`）上 → 控制**组件自身内容**的位置。
 
 ```css
-animation: <name> <duration> [easing]
+/* slot：内部组件依次错开入场（每个比前一个晚 60ms） */
+.app-top { enter: fade-up 320ms ease-out; stagger: 60ms; }
+
+/* 组件：自身内容淡入并上移 */
+#app-name { enter: fade-up 300ms ease-out; }
+
+/* 持续旋转 */
+#search-button { animation: spin 3s linear infinite; }
 ```
 
-**内置动画名：**
+#### 语法
 
-| 名称 | 效果 |
-|------|------|
-| `spin` | 旋转（无限循环） |
-| `pulse` | 缩放脉冲 1.0 ↔ 1.15（无限循环） |
-| `bounce` | 垂直弹跳（无限循环） |
-| `fade-in` | 渐显（播放一次） |
+```
+<name> <duration> [easing] [delay] [iteration-count] [direction]
+```
 
-`spin` / `pulse` / `bounce` 始终无限循环，`fade-in` 播放一次。当前实现不支持有限循环次数。
+- `name`：内置预设名，或自定义 `@keyframes` 名（自定义优先）
+- `duration` / `delay`：`300ms` 或 `0.3s`；**第二个时间 token 视为延迟**
+- `easing`：`linear` / `ease` / `ease-in` / `ease-out` / `ease-in-out`
+- `iteration-count`：`infinite` 或整数（默认 1）
+- `direction`：`normal` / `reverse` / `alternate` / `alternate-reverse`
 
-**时长：** `3s`（秒）或 `3000ms`（毫秒），默认 `1000ms`
+#### 旋转的三类用法（别混用）
 
-**缓动函数：**
+| 需求 | 写法 | 归属 |
+|------|------|------|
+| 静态倾斜（定格不动） | `rotate: 45deg` | 普通 CSS 属性 |
+| 入场旋转（只转一次） | `enter: rotate-in 420ms ease-out` | 入场动画 |
+| 持续旋转（一直转） | `animation: spin 3s linear infinite` | 持续动画 |
 
-| 值 | 说明 |
-|----|------|
-| `linear` | 线性 |
-| `ease-in` | 当前与 `ease-in-out` 等价 |
-| `ease-out` | 当前与 `ease-in-out` 等价 |
-| `ease-in-out` | 缓入缓出（默认） |
+`enter` 与 `animation` 是两个独立机制：
 
-> 当前实现中 `ease-in` / `ease-out` / `ease-in-out` 三者映射到同一条缓动曲线，只有 `linear` 有实际区别。
+- `enter` 只在元素**进入组合时播一次**，并停在终止帧（不回弹）；
+- `animation` 在组合后**持续播放**（`spin` / `spin-reverse` / `pulse` / `bounce` / `shake` 未写次数时默认无限）。
 
-**示例：**
+写错位置会得到非预期效果：`enter: spin` 只会转一圈就停下（即旋转入场），
+写进 `animation` 才是真的“一直转”。持续旋转的速度由 `duration` 控制（`3s` 比 `1s` 慢），
+方向可用 `reverse` / `alternate` 覆盖。
+
+#### 内置动画名
+
+| 名称 | 效果 | 典型用途 |
+|------|------|----------|
+| `fade-in` | 透明度 0 → 1 | 通用入场 |
+| `fade-up` / `fade-down` | 淡入 + 位移 16px | 列表项入场 |
+| `fade-left` / `fade-right` | 淡入 + 水平位移 16px | 侧向入场 |
+| `slide-in-left/right/up/down` | 淡入 + 位移 40px | 面板滑入 |
+| `zoom-in` / `zoom-out` | 淡入 + 缩放 0.86 / 1.14 → 1 | 弹窗、封面 |
+| `pop` | 缩放 0.6 → 1.06 → 1 | 强调出现 |
+| `rotate-in` / `rotate-in-cw` | 淡入 + 从 ∓180° 旋入 + 缩放 0.7 → 1 | 强调入场 |
+| `spiral-in` | 淡入 + 从 -120° 旋入 + 缩放 0.4 → 1 | 卡片、封面 |
+| `flip-in-x` / `flip-in-y` | 淡入 + 3D 翻转 90° → 0° | 卡片翻转 |
+| `drop-in` | 从上方落下 40px + 轻微旋转（-6°） | 列表项 |
+| `spin` | 旋转 360° | 加载指示、持续旋转 |
+| `spin-reverse` | 反向旋转 360° | 反向持续旋转 |
+| `pulse` | 缩放 1 → 1.12 → 1 | 循环呼吸感 |
+| `bounce` | 垂直 -14px 往复 | 提示 |
+| `shake` | 水平抖动 | 错误提示 |
+
+> 在布局编辑器里，动画是**效果 / 时长 / 缓动 三段选择**（chip 上显示中文说明，不提供自由输入）——
+> 手写简写拼错时会静默失效，所以编辑器不开放输入框。需要自定义 `@keyframes` 时直接编辑 `styles.css`。
+
+#### 自定义关键帧 `@keyframes`
 
 ```css
-/* 3 秒线性旋转（无限循环） */
-#search-button { animation: spin 3s linear; }
+@keyframes drop-in {
+  from { opacity: 0; translate-y: -24px; }
+  to   { opacity: 1; translate-y: 0; }
+}
 
-/* 2 秒脉冲（无限循环） */
-#play-button { animation: pulse 2s ease-in-out; }
+#fp-title { enter: drop-in 420ms ease-out; }
 ```
+
+- 关键帧属性：`opacity`、`translate-x`、`translate-y`、`translate`（1/2 值）、`scale`（1/2 值）、`scale-x`、`scale-y`、`rotate`（绕 Z 轴）、`rotate-x` / `rotate-y`（绕 X / Y 轴 3D 旋转，用于翻转入场）
+- 长度单位与角度单位同全局：`px` / `dp` / 纯数字；`deg` / `turn` / `rad` / 纯数字
+- 帧选择器：`from` / `to` / `N%` / 逗号列表（如 `0%, 100%`）
+- 未在某帧声明的通道不参与该帧，各通道独立插值
+
+#### 列表滚动惯性
+
+`item-inertia`（playlist 组件属性）：列表滑动中，条目按「与视口中心的距离」错开不同间隔
+（离中心越远位移越大，形成惯性拉开），停止滚动后以弹性曲线回位。
+位移只作用于绘制层，不改变条目的布局占位（不会影响滚动位置或触发重新测量）。
+
+```css
+#playlist { item-inertia: 1; }   /* 0 = 关闭（默认）；1 标称强度；可到 4 更强 */
+```
+
+#### 条目入场动画
+
+`item-enter`（playlist 组件属性）：列表条目首次出现时播放的入场动画，**切换分类 / 切换排序时重播**，
+前 10 条依次错开（每条晚 `duration` 的自身时长一定比例），长列表尾部同批入场避免长时间等待。
+
+```css
+#playlist { item-enter: fade-up 300ms ease-out; }
+#playlist { item-enter: rotate-in 420ms ease-out; }   /* 旋入 */
+#playlist { item-enter: flip-in-y 380ms ease-out; }   /* 3D 翻转 */
+```
+
+条目动画与滚动惯性可同时开启：前者控制“入场时”，后者控制“滑动中”。
 
 ### 3.6 值单位
 
@@ -501,48 +584,128 @@ animation: <name> <duration> [easing]
 
 ### 3.7 CSS 属性速查表
 
-#### Slot 级属性（在 `.slot-name` 中设置）
+属性按**用途分组**（与布局编辑器面板的分组一致）。「适用」列说明属性在哪里被读取 ——
+编辑器面板也按此过滤：只显示在该处真实生效的属性，避免出现“改了没反应”的项。
 
-| 属性 | 类型 | 说明 |
+- `slot` — 只对区域选择器（`.app-top`）生效
+- `组件` — 只对组件选择器（`#app-name`）生效
+- `两者` — slot 与组件都生效
+
+> 例外：根容器 `.main` / `.full-player` 是最外层容器，渲染层对它额外应用整套组件样式，
+> 因此标注为「组件」的属性在根容器上同样生效（面板里也会显示）。
+
+#### 布局
+
+| 属性 | 适用 | 说明 |
 |------|------|------|
-| `arrange` | `row` / `column` | 内部组件排列方向 |
-| `weight` | 数字 | 空间分配比例，`0`=包裹内容 |
-| `gap` | 长度 | 子元素间距 |
-| `width` | 长度 | slot 固定宽度（需 `weight: 0`） |
-| `height` | 长度 | slot 固定高度（需 `weight: 0`） |
-| `background-color` | 颜色 | slot 背景色 |
-| `padding` | 长度/组 | slot 内边距 |
-| `justify-content` | `start`/`center`/`end`/`space-between`/`space-evenly`/`space-around` | 子组件在主轴方向的排列方式 |
+| `arrange` | slot（容器组件亦可） | `row` / `column` / `overlay`；决定内部组件 / children 的排列方向 |
+| `weight` | 两者 | 空间分配比例；`0` = 包裹内容 |
+| `gap` | slot | 内部组件间距 |
+| `justify-content` | slot | `start` / `center` / `end` / `space-between` / `space-evenly` / `space-around` |
+| `align` | 两者 | 叠放（overlay）时的 9 宫格定位 |
+| `align-self` | 组件 | 在父 slot 交叉轴上的对齐（`start` / `center` / `end` / `stretch`） |
+| `content-align` | 组件 | 组件内容在自身范围内的对齐（默认 `center`） |
 
-#### 组件级属性（在 `#component-id` 中设置）
+#### 尺寸与间距
 
-| 属性 | 类型 | 说明 |
+| 属性 | 适用 | 说明 |
 |------|------|------|
-| `weight` | 数字 | 组件在 slot 内的空间分配 |
-| `width` | 长度 | 固定宽（需 slot `weight: 0`） |
-| `height` | 长度 | 固定高 |
-| `size` | 长度 | 等宽高 |
-| `fillMaxWidth` | `true` | 撑满宽度 |
-| `background-color` | 颜色 | 背景色 |
-| `border-radius` | 长度 | 圆角 |
-| `padding` | 长度/组 | 内边距 |
-| `opacity` | 0.0~1.0 | 透明度 |
-| `scale` | 数字 | 缩放 |
-| `rotate` | 角度 | 旋转 |
-| `overflow` | `hidden` | 裁剪 |
-| `align-self` | `start`/`center`/`end` | 交叉轴对齐（见 3.4） |
-| `content-align` | `start`/`center`/`end` | 组件内容在自身 Box 内的对齐（默认 `center`） |
-| `animation` | 动画值 | 动画效果 |
-| `color` | 颜色 | 文字/图标颜色（组件内部使用） |
+| `size` | 组件 | 等宽高 |
+| `width` / `height` | 组件 | 固定宽 / 高 |
+| `min-width` / `min-height` / `max-width` / `max-height` | 组件 | 尺寸约束 |
+| `padding` | 两者 | 支持 `8px` 简写与单侧 `padding-top` 等 |
 
-#### 根容器属性（在 `.main` 中设置）
+#### 外观
 
-| 属性 | 类型 | 说明 |
+| 属性 | 适用 | 说明 |
 |------|------|------|
-| `arrange` | `row` / `column` | slot 之间的排列方向 |
-| 其他 | 同上 | 应用到最外层容器 |
+| `color` | 组件 | 文字 / 图标颜色 |
+| `background-color` | 两者 | 纯色背景 |
+| `background` | 组件 | 纯色或 `linear-gradient(...)` |
+| `border-radius` | 组件 | 圆角 |
+| `border` | 组件 | 如 `1px solid #fff` |
+| `box-shadow` | 组件 | 如 `0 4px 12px rgba(0,0,0,.3)` |
+| `opacity` | 组件 | `0..1` |
 
----
+#### 变换
+
+| 属性 | 适用 | 说明 |
+|------|------|------|
+| `scale` | 组件 | 缩放（1 或 2 值） |
+| `rotate` | 组件 | **静态**旋转（绕 Z 轴），如 `45deg` |
+| `overflow` | 组件 | `hidden` 裁剪 |
+
+#### 文字（`text` 组件）
+
+| 属性 | 说明 |
+|------|------|
+| `content` | 文本内容（CSS 去引号，JSON `content` 次优先，`bind` 优先于二者） |
+| `font-family` | `sans-serif` / `serif` / `monospace` / `cursive` |
+| `font-size` / `font-weight` / `font-style` | 字号 / 字重 / 斜体 |
+| `line-height` / `letter-spacing` | 行高 / 字间距 |
+| `text-align` | `start` / `center` / `end` |
+| `text-transform` | `uppercase` / `lowercase` / `capitalize` / `none` |
+| `text-decoration` | `underline` / `line-through`（可组合） |
+| `text-shadow` | 如 `0 2px 4px rgba(0,0,0,.4)` |
+| `max-lines` | 最大行数（`none` = 不限） |
+| `text-overflow` | `ellipsis` / `clip` / `visible` |
+
+#### 内容与形状（纯美化组件）
+
+| 属性 | 组件 | 说明 |
+|------|------|------|
+| `src` / `fit` | `image` | 图片源（资源名 / 路径 / URL）与填充方式 |
+| `value` / `animate` / `track-color` / `fill-color` | `progress` | 静态进度条的数值与配色 |
+| `thickness` / `orientation` / `dashed` / `dash-gap` / `fade-edges` | `divider` | 线宽 / 方向 / 虚线 / 段长 / 两端渐隐 |
+| `hollow` | `dot` | 空心圆点 |
+| `pill` | `badge` | 全圆角徽章 |
+| `radius` / `elevation` / `stroke-color` / `stroke-width` / `fill-color` | `card` | 圆角 / 阴影高度 / 描边 / 填充 |
+| `tint` / `tint-alpha` | `image` / `blur-layer` | 着色 / 叠加不透明度 |
+| `blur-radius` | `blur-layer` | 模糊半径 |
+
+#### 入场动画（播放一次）
+
+| 属性 | 适用 | 说明 |
+|------|------|------|
+| `enter` | 两者 | 如 `rotate-in 420ms ease-out`；进入组合时播一次并停在终止帧 |
+| `enter-delay` | 两者 | 入场额外延迟 |
+| `stagger` | slot | 内部子组件依次入场的间隔（错开位置） |
+| `item-enter` | playlist | 列表条目入场；切换分类 / 排序时重播 |
+
+#### 持续动画（循环）
+
+| 属性 | 适用 | 说明 |
+|------|------|------|
+| `animation` | 两者 | 如 `spin 3s linear infinite`；组合后持续播放 |
+
+#### 列表条目（`playlist` 组件）
+
+| 属性 | 说明 |
+|------|------|
+| `item-layout` / `item-columns` | `list` / `grid` 与网格列数 |
+| `item-inertia` | 滚动惯性强度（`0` 关闭） |
+| `item-bg` / `item-radius` | 条目背景与圆角 |
+| `item-color` / `item-font-size` | 歌名颜色与字号 |
+| `item-sub-color` / `item-sub-size` | 歌手 · 专辑行的颜色与字号 |
+| `item-font-family` | 条目字体 |
+
+#### 玻璃特效（`playbar` / `pb-backdrop`）
+
+| 属性 | 说明 |
+|------|------|
+| `render-style` | `none` / `semi-tran` / `blur` / `liquid` |
+| `blur-radius` | 毛玻璃模糊半径 |
+| `liquid-edge` / `liquid-refraction` | 液态玻璃边缘厚度与折射强度 |
+| `liquid-opacity` / `liquid-specular` / `liquid-shininess` / `liquid-rim` / `liquid-chromatic` | 表面不透明度 / 高光强度与锐度 / 边缘亮线 / 色散 |
+
+#### 根容器（`.main` / `.full-player`）
+
+| 属性 | 说明 |
+|------|------|
+| `arrange` | slot 之间的排列方向（`.full-player` 独立于 `.main`） |
+| 其他 | 同上，应用到最外层容器 |
+
+> 同名选择器多次出现时会**合并属性**（后者覆盖同名属性），符合 CSS 级联语义。
 
 ## 4. 内置组件参考
 
@@ -897,6 +1060,104 @@ bind 未命中时显示 `(bind:<键>)` 便于排查。
 - `< 160dp`：仅播放模式 + 播放暂停
 - `< 200dp`：增加上下首按钮
 - `>= 200dp`：显示全部按钮
+
+---
+
+### 4.3 纯美化组件
+
+以下组件只影响外观、不参与业务逻辑，可放入任意 slot 组合界面。
+
+#### divider 分割线
+
+```json
+"divider"
+```
+
+| 属性 | 说明 |
+|------|------|
+| `thickness` | 线宽（默认 `1px`） |
+| `color` | 线色（默认主题 `outlineVariant`） |
+| `orientation` | `horizontal`（默认）/ `vertical` |
+| `dashed` | `true` 时虚线（自绘 Canvas，无形状拼接） |
+| `dash-gap` | 虚线段长与间隔（px，默认 `4`） |
+| `fade-edges` | `true` 时两端渐隐 |
+
+```css
+#sep { thickness: 1px; dashed: true; dash-gap: 6; fade-edges: true; }
+```
+
+#### image 图片
+
+```json
+{ "image": { "src": "ic_launcher" } }
+```
+
+| 属性 | 说明 |
+|------|------|
+| `src`（CSS 或 JSON） | drawable 资源名 / 文件路径 / `content://` / `http(s)://` |
+| `fit` | `cover` / `contain`（默认）/ `fill` / `fitWidth` / `fitHeight` |
+| `tint` | 着色 |
+| `alpha` | `0..1` |
+
+资源名走 `painterResource`（同步、无网络），其余交给 Coil 加载。
+
+#### card 卡片
+
+纯背景卡片（非容器，不能嵌子组件）。
+
+| 属性 | 说明 |
+|------|------|
+| `radius` | 圆角（回退 `border-radius`，默认 `12px`） |
+| `fill-color` | 填充色（回退 `background-color`） |
+| `stroke-color` / `stroke-width` | 描边 |
+| `elevation` | 阴影高度（默认 `0`） |
+
+#### badge 徽章
+
+```json
+{ "badge": { "content": "NEW" } }
+```
+
+| 属性 | 说明 |
+|------|------|
+| `content`（CSS 或 JSON） | 文本 |
+| `fill-color` / `text-color` / `text-size` | 外观 |
+| `pill` | `true` 时全圆角 |
+| `stroke-color` / `stroke-width` | 描边 |
+| `padding-x` / `padding-y` | 内边距 |
+
+#### dot 圆点
+
+| 属性 | 说明 |
+|------|------|
+| `size` | 直径（默认 `8px`） |
+| `color` | 颜色 |
+| `hollow` | `true` 时只描边 |
+| `stroke-width` | 描边宽度（默认 `2px`） |
+
+#### progress 静态进度条
+
+非交互（不同于 `progress-slider`），用于展示任意 0..1 数值。
+
+| 属性 | 说明 |
+|------|------|
+| `value`（CSS 或 JSON） | `0..1`，或 `0..100`（>1 视为百分比） |
+| `track-color` / `fill-color` | 轨道与填充色 |
+| `height` | 条粗细（默认 `4px`） |
+| `radius` | 圆角（默认 `2px`） |
+| `animate` | `true` 时数值变化带动画过渡 |
+
+#### blur-layer 模糊层
+
+| 属性 | 说明 |
+|------|------|
+| `blur-radius` | 模糊半径（默认 `0` = 不模糊） |
+| `tint` / `tint-alpha` | 叠加色调与不透明度 |
+| `background` | 可先用 `linear-gradient(...)` 铺底再模糊，形成光斑 |
+
+```css
+#glow { background: linear-gradient(135deg, #7C4DFF, #00E5FF); blur-radius: 48px; }
+```
 
 ---
 

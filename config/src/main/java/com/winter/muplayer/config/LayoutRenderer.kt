@@ -20,7 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -61,15 +60,29 @@ fun SlotRenderer(
     outerArrange: String? = null,
 ) {
     CompositionLocalProvider(LocalCssRules provides css) {
-        // 进度数据独立收集：仅订阅 LocalProgress 的组件（text bind position/duration、progress-slider）
-        // 随进度高频重组，其余组件因参数稳定而跳过，避免整个 UI 每 250ms 全量重组。
-        val progress by context.musicPlayerCore.progressState.collectAsState()
-        CompositionLocalProvider(LocalProgress provides progress) {
+        // 进度数据以 StateFlow 下发：需要进度的组件（text 的 bind position/duration、
+        // progress-slider、progress-bar）各自 collectAsState，只有这些叶子随 250ms 进度重组。
+        // 早前在渲染树根 collect，会让整个 UI 每 250ms 全量重组一次。
+        CompositionLocalProvider(LocalProgressFlow provides context.musicPlayerCore.progressState) {
             val layoutCss = css.rules[".main"] ?: emptyMap()
             val layoutArrange = outerArrange ?: layoutCss["arrange"]
             val isLayoutRow = layoutArrange == "row" || layoutArrange == "horizontal"
             val isLayoutOverlay = layoutArrange == "overlay"
-            val outerMod = Modifier.fillMaxSize().applyCssProps(layoutCss).statusBarsPadding()
+            // 界面根容器兜底不透明背景 —— 关键：
+            // 界面切换使用 AnimatedVisibility 做**交叉过渡**（旧界面滑出与新区面滑入同时进行），
+            // 若根容器透明，两层界面会互相透视，看起来就像“两个界面叠加渲染”；
+            // 入场动画（元素从 alpha 0 淡入）会延长半透明时段，让这种透视更明显。
+            // CSS 显式指定 background-color / background 时以 CSS 为准。
+            val hasCssBackground =
+                layoutCss.containsKey("background-color") || layoutCss.containsKey("background")
+            val outerMod = Modifier
+                .fillMaxSize()
+                .then(
+                    if (hasCssBackground) Modifier
+                    else Modifier.background(MaterialTheme.colorScheme.background)
+                )
+                .applyCssProps(layoutCss)
+                .statusBarsPadding()
 
             if (isLayoutOverlay) {
                 // ═══ 叠放：子 slot 在 Box 中按声明顺序 z 序叠加（后声明在上） ═══
@@ -134,6 +147,12 @@ private fun SlotRendererBody(
     var componentIndex = 0
     for ((slotName, components) in slots) {
         val slotCss = css.rules[".$slotName"] ?: css.rules[slotName] ?: emptyMap()
+        // slot 级动画：enter / animation 作用在 slot 自身（挂到 slotModifier），
+        // stagger 下传给内部组件 —— 即「动画作用于 slot 时控制内部组件位置」。
+        val slotBinding = remember(slotCss, css.keyframes) {
+            parseAnimationBinding(slotCss, css.keyframes)
+        }
+        val slotStaggerMs = slotBinding?.staggerMs ?: 0
 
         val rawWeight = slotCss["weight"]?.toFloatOrNull()
         val arrange = slotCss["arrange"]
@@ -193,7 +212,7 @@ private fun SlotRendererBody(
                 .applyPaddingProps(slotCss)
         }
 
-        Box(modifier = slotModifier) {
+        Box(modifier = slotModifier.cssAnimated(slotBinding)) {
             // 内容容器：Row（水平）或 Column（垂直）
             val content: @Composable () -> Unit = {
                 if (arrange == "horizontal" || arrange == "row") {
@@ -212,9 +231,9 @@ private fun SlotRendererBody(
                         },
                     ) {
                         // ═══ RowScope 内，weight() 可用 ═══
-                        for (entry in components) {
-                            val compCss = resolveComponentCss(entry, css)
-                            val mod = compCssModifier(compCss).let { m ->
+                        for ((staggerIndex, entry) in components.withIndex()) {
+                            val compCss = remember(entry, css) { resolveComponentCss(entry, css) }
+                            val mod = remember(compCss) { compCssModifier(compCss) }.let { m ->
                                 if (debug) {
                                     componentIndex++
                                     val dc = debugColors[(componentIndex - 1) % debugColors.size]
@@ -224,7 +243,9 @@ private fun SlotRendererBody(
                                     }
                                 } else m
                             }
-                            val animWrapper = parseAnimationWrapper(compCss)
+                            val compBinding = remember(compCss, css.keyframes) {
+                                parseAnimationBinding(compCss, css.keyframes)
+                            }
                             val compWeight = compCss["weight"]?.toFloatOrNull()
                             // 容器组件（带 children 的背景层，如 fp-backdrop）：未显式设 weight 时默认铺满父容器
                             val isContainer = entry.extra["children"] is Map<*, *>
@@ -235,8 +256,13 @@ private fun SlotRendererBody(
                                 else -> mod
                             }
 
+                            // 复用同一实例：否则每次重组都新建 SlotContext，LocalSlotContext 的
+                            // 读取者（几乎所有组件）会随之失效，无法跳过重组。
+                            val slotContext = remember(context, slotName, arrange) {
+                                context.copy(slotName = slotName, slotArrange = arrange)
+                            }
                             CompositionLocalProvider(
-                                LocalSlotContext provides context.copy(slotName = slotName, slotArrange = arrange),
+                                LocalSlotContext provides slotContext,
                                 LocalComponentExtra provides entry.extra,
                                 LocalComponentCss provides compCss,
                             ) {
@@ -272,8 +298,14 @@ private fun SlotRendererBody(
                                 } else {
                                     weightMod  // stretch 或未设 → 默认填满交叉轴
                                 }
-                                if (animWrapper != null) {
-                                    animWrapper(finalMod) { renderer(Modifier) }
+                                if (compBinding != null && compBinding.hasAny) {
+                                    renderer(
+                                        finalMod.cssAnimated(
+                                            binding = compBinding,
+                                            staggerIndex = staggerIndex,
+                                            inheritedStaggerMs = slotStaggerMs,
+                                        )
+                                    )
                                 } else {
                                     renderer(finalMod)
                                 }
@@ -313,9 +345,9 @@ private fun SlotRendererBody(
                         },
                     ) {
                         // ═══ ColumnScope 内，weight() 可用 ═══
-                        for (entry in components) {
-                            val compCss = resolveComponentCss(entry, css)
-                            val mod = compCssModifier(compCss).let { m ->
+                        for ((staggerIndex, entry) in components.withIndex()) {
+                            val compCss = remember(entry, css) { resolveComponentCss(entry, css) }
+                            val mod = remember(compCss) { compCssModifier(compCss) }.let { m ->
                                 if (debug) {
                                     componentIndex++
                                     val dc = debugColors[(componentIndex - 1) % debugColors.size]
@@ -325,7 +357,9 @@ private fun SlotRendererBody(
                                     }
                                 } else m
                             }
-                            val animWrapper = parseAnimationWrapper(compCss)
+                            val compBinding = remember(compCss, css.keyframes) {
+                                parseAnimationBinding(compCss, css.keyframes)
+                            }
                             val compWeight = compCss["weight"]?.toFloatOrNull()
                             // 容器组件（带 children 的背景层，如 fp-backdrop）：未显式设 weight 时默认铺满父容器
                             val isContainer = entry.extra["children"] is Map<*, *>
@@ -336,8 +370,13 @@ private fun SlotRendererBody(
                                 else -> mod
                             }
 
+                            // 复用同一实例：否则每次重组都新建 SlotContext，LocalSlotContext 的
+                            // 读取者（几乎所有组件）会随之失效，无法跳过重组。
+                            val slotContext = remember(context, slotName, arrange) {
+                                context.copy(slotName = slotName, slotArrange = arrange)
+                            }
                             CompositionLocalProvider(
-                                LocalSlotContext provides context.copy(slotName = slotName, slotArrange = arrange),
+                                LocalSlotContext provides slotContext,
                                 LocalComponentExtra provides entry.extra,
                                 LocalComponentCss provides compCss,
                             ) {
@@ -373,8 +412,14 @@ private fun SlotRendererBody(
                                 } else {
                                     weightMod  // stretch 或未设 → 默认填满交叉轴
                                 }
-                                if (animWrapper != null) {
-                                    animWrapper(finalMod) { renderer(Modifier) }
+                                if (compBinding != null && compBinding.hasAny) {
+                                    renderer(
+                                        finalMod.cssAnimated(
+                                            binding = compBinding,
+                                            staggerIndex = staggerIndex,
+                                            inheritedStaggerMs = slotStaggerMs,
+                                        )
+                                    )
                                 } else {
                                     renderer(finalMod)
                                 }
@@ -577,10 +622,14 @@ private fun OverlaySlots(
         } else {
             Modifier.fillMaxSize()
         }
+        val overlaySlotBinding = remember(slotCss, css.keyframes) {
+            parseAnimationBinding(slotCss, css.keyframes)
+        }
         Box(
             modifier = slotMod
                 .let { if (slotBgCss != null) it.background(slotBgCss) else it }
                 .applyPaddingProps(slotCss)
+                .cssAnimated(overlaySlotBinding)
         ) {
             OverlayComponents(
                 components = components,
@@ -605,10 +654,14 @@ private fun BoxScope.OverlayComponents(
 ) {
     // 液态玻璃 backdrop：由内容容器（overlay 分支）提供，本层 content 应用 capture、playbar 绘制
     val backdrop = LocalGlassBackdrop.current
+    val overlaySlotCss = css.rules[".$slotName"] ?: css.rules[slotName] ?: emptyMap()
+    val slotStaggerMs = remember(overlaySlotCss, css.keyframes) {
+        parseAnimationBinding(overlaySlotCss, css.keyframes)?.staggerMs ?: 0
+    }
 
-    for (entry in components) {
-        val compCss = resolveComponentCss(entry, css)
-        val mod = compCssModifier(compCss)
+    for ((staggerIndex, entry) in components.withIndex()) {
+        val compCss = remember(entry, css) { resolveComponentCss(entry, css) }
+        val mod = remember(compCss) { compCssModifier(compCss) }
         val isContainer = entry.extra["children"] is Map<*, *>
         // 容器（子 slot 字典 / fp-backdrop 等）默认铺满叠放区；内容层（匿名容器，即液态玻璃内容源）
         // 额外应用 capture modifier（列表单次录制，供浮层 drawBackdrop 引用）；
@@ -627,8 +680,11 @@ private fun BoxScope.OverlayComponents(
         }
         val alignMod = compCss["align"]?.let { Modifier.align(parseBoxAlign(it)) } ?: Modifier
 
+        val overlayComponentContext = remember(context, slotName) {
+            context.copy(slotName = slotName, slotArrange = "overlay")
+        }
         CompositionLocalProvider(
-            LocalSlotContext provides context.copy(slotName = slotName, slotArrange = "overlay"),
+            LocalSlotContext provides overlayComponentContext,
             LocalComponentExtra provides entry.extra,
             LocalComponentCss provides compCss,
         ) {
@@ -659,10 +715,18 @@ private fun BoxScope.OverlayComponents(
                     }
                 }
             }
-            val animWrapper = parseAnimationWrapper(compCss)
+            val compBinding = remember(compCss, css.keyframes) {
+                parseAnimationBinding(compCss, css.keyframes)
+            }
             val finalMod = baseMod.then(alignMod)
-            if (animWrapper != null) {
-                animWrapper(finalMod) { renderer(Modifier) }
+            if (compBinding != null && compBinding.hasAny) {
+                renderer(
+                    finalMod.cssAnimated(
+                        binding = compBinding,
+                        staggerIndex = staggerIndex,
+                        inheritedStaggerMs = slotStaggerMs,
+                    )
+                )
             } else {
                 renderer(finalMod)
             }

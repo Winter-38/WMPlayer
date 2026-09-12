@@ -406,17 +406,19 @@ class StyleConfigLoader(private val context: Context) {
         val cssFiles = configDir.listFiles { f -> f.extension == "css" }
             ?.sortedBy { it.name } ?: return CssRuleTable()
         val merged = mutableMapOf<String, Map<String, String>>()
+        val mergedKeyframes = mutableMapOf<String, CssKeyframes>()
         var latestMod = 0L
         for (file in cssFiles) {
             try {
-                val rules = CssParser.parse(file.readText())
-                merged.putAll(rules)
+                val parsed = CssParser.parseAll(file.readText())
+                merged.putAll(parsed.rules)
+                mergedKeyframes.putAll(parsed.keyframes)
                 if (file.lastModified() > latestMod) latestMod = file.lastModified()
             } catch (e: Exception) {
                 android.util.Log.w("StyleConfig", "Failed to parse CSS ${file.name}: ${e.message}")
             }
         }
-        return CssRuleTable(rules = merged)
+        return CssRuleTable(rules = merged, keyframes = mergedKeyframes)
     }
 
     /**
@@ -531,12 +533,19 @@ class StyleConfigLoader(private val context: Context) {
 /* slot 比例：weight: 1（默认均分）| 0（包裹内容）| 2、3... */
 
 .full-player { arrange: column; gap: 8px; }
-.app-top    { arrange: row;    weight: 0; }
+/* 顶部栏：横向排列、按内容高度（weight: 0）；内部组件依次错开淡入（stagger = 相邻组件延迟）*/
+/* 动画只作用于绘制层，不改变布局占位；想关闭删除 enter / stagger 即可 */
+.app-top    { arrange: row; weight: 0; enter: fade-up 320ms ease-out; stagger: 50ms; }
 #search-button  { size: 40px; }
 #setting-button { size: 40px; }
 #spacer     { weight: 1; }
 .app-center { arrange: column; weight: 1; }
 .app-bottom { arrange: row;    weight: 0; }
+
+/* 播放列表：滚动惯性 —— 滑动中条目按与视口中心的距离错开不同间隔，停止后弹回原位 */
+/* item-inertia: 0 关闭（默认）；1 标称强度；可到 4 更强 */
+/* item-enter：条目入场动画 —— 切换分类 / 排序时逐条错开入场（可换成 rotate-in / flip-in-y 等）*/
+#playlist   { item-inertia: 1; item-enter: fade-up 300ms ease-out; }
 
 /* 迷你播放栏渲染样式（与设置页四态切换双向同步）：
    render-style: none       无效果：不透明卡片（默认，线性独立栏）

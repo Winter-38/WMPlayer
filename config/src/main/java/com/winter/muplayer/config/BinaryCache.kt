@@ -21,7 +21,16 @@ import java.security.MessageDigest
 object BinaryCache {
 
     private const val MAGIC = "WMPC"
-    private const val VERSION: Byte = 1
+
+    /**
+     * 缓存格式版本。
+     * - v1：slots / fullPlayerSlots / css rules
+     * - v2：追加 customComponents（修 v1 丢失自定义组件）与 css keyframes（修 @keyframes 丢失）
+     * - v3：keyframes 帧追加 rotateX / rotateY（3D 翻转入场通道）
+     *
+     * 版本不匹配时 [tryRead] 会删缓存并返回 null，由加载方重新解析生成。
+     */
+    private const val VERSION: Byte = 3
     private const val CACHE_FILENAME = "layout.cache"
 
     // Extra value 类型标记
@@ -86,10 +95,49 @@ object BinaryCache {
             out.writeByte(VERSION.toInt())
             writeSlots(out, layout.slots)
             writeSlots(out, layout.fullPlayerSlots)
+            writeCustomComponents(out, layout.customComponents)
             writeCss(out, css.rules)
+            writeKeyframes(out, css.keyframes)
         }
         return baos.toByteArray()
     }
+
+    /** 自定义组件定义（`#name` → 属性字典） */
+    private fun writeCustomComponents(out: DataOutputStream, components: Map<String, Map<String, Any?>>) {
+        out.writeInt(components.size)
+        for ((name, props) in components) {
+            out.writeUTF(name)
+            writeExtra(out, props)
+        }
+    }
+
+    /** @keyframes 关键帧定义 */
+    private fun writeKeyframes(out: DataOutputStream, keyframes: Map<String, CssKeyframes>) {
+        out.writeInt(keyframes.size)
+        for ((name, kf) in keyframes) {
+            out.writeUTF(name)
+            out.writeInt(kf.frames.size)
+            for (frame in kf.frames) {
+                out.writeFloat(frame.offset)
+                writeNullableFloat(out, frame.opacity)
+                writeNullableFloat(out, frame.translateX)
+                writeNullableFloat(out, frame.translateY)
+                writeNullableFloat(out, frame.scaleX)
+                writeNullableFloat(out, frame.scaleY)
+                writeNullableFloat(out, frame.rotate)
+                writeNullableFloat(out, frame.rotateX)
+                writeNullableFloat(out, frame.rotateY)
+            }
+        }
+    }
+
+    private fun writeNullableFloat(out: DataOutputStream, value: Float?) {
+        out.writeBoolean(value != null)
+        if (value != null) out.writeFloat(value)
+    }
+
+    private fun readNullableFloat(`in`: DataInputStream): Float? =
+        if (`in`.readBoolean()) `in`.readFloat() else null
 
     private fun writeSlots(out: DataOutputStream, slots: Map<String, List<ComponentEntry>>) {
         out.writeInt(slots.size)
@@ -183,13 +231,16 @@ object BinaryCache {
 
             val slots = readSlots(`in`)
             val fullPlayerSlots = readSlots(`in`)
+            val customComponents = readCustomComponents(`in`)
             val cssRules = readCss(`in`)
+            val keyframes = readKeyframes(`in`)
 
             val layout = ComponentLayout(
                 slots = if (slots.isNotEmpty()) slots else ComponentLayout.defaultSlots,
+                customComponents = customComponents,
                 fullPlayerSlots = if (fullPlayerSlots.isNotEmpty()) fullPlayerSlots else ComponentLayout.defaultFullPlayerSlots,
             )
-            return layout to CssRuleTable(rules = cssRules)
+            return layout to CssRuleTable(rules = cssRules, keyframes = keyframes)
         }
     }
 
@@ -241,6 +292,43 @@ object BinaryCache {
                 else -> throw IllegalArgumentException("Unknown extra type: $type")
             }
             result[key] = value
+        }
+        return result
+    }
+
+    private fun readCustomComponents(`in`: DataInputStream): Map<String, Map<String, Any?>> {
+        val count = `in`.readInt()
+        val result = linkedMapOf<String, Map<String, Any?>>()
+        for (i in 0 until count) {
+            val name = `in`.readUTF()
+            result[name] = readExtra(`in`)
+        }
+        return result
+    }
+
+    private fun readKeyframes(`in`: DataInputStream): Map<String, CssKeyframes> {
+        val count = `in`.readInt()
+        val result = linkedMapOf<String, CssKeyframes>()
+        for (i in 0 until count) {
+            val name = `in`.readUTF()
+            val frameCount = `in`.readInt()
+            val frames = ArrayList<CssKeyframe>(frameCount)
+            for (j in 0 until frameCount) {
+                frames.add(
+                    CssKeyframe(
+                        offset = `in`.readFloat(),
+                        opacity = readNullableFloat(`in`),
+                        translateX = readNullableFloat(`in`),
+                        translateY = readNullableFloat(`in`),
+                        scaleX = readNullableFloat(`in`),
+                        scaleY = readNullableFloat(`in`),
+                        rotate = readNullableFloat(`in`),
+                        rotateX = readNullableFloat(`in`),
+                        rotateY = readNullableFloat(`in`),
+                    )
+                )
+            }
+            result[name] = CssKeyframes(name, frames)
         }
         return result
     }

@@ -15,7 +15,9 @@
 -keep class androidx.media3.** { *; }
 
 # ==================== Coil ====================
--keep class coil.** { *; }
+# 不再整包 keep：coil-base / coil-compose 的 AAR 自带 consumer rules（会保留
+# ComponentRegistry 等需要运行时发现的组件），整包 -keep 只会阻止 R8
+# 裁掉未使用的解码器（GIF / SVG / 视频等本项目不用的部分）。
 
 # ==================== Kotlin 协程 ====================
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
